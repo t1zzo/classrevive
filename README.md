@@ -138,4 +138,4 @@ Bug reports, fixtures and pull requests are welcome; see [CONTRIBUTING.md](CONTR
 
 ## License
 
-ClassRevive is licensed under the [Apache License 2.0](LICENSE). The distribution bundles CFR (MIT), Vineflower, Procyon and JADX (Apache-2.0), ASM (BSD-3-Clause), FlatLaf (Apache-2.0), RSyntaxTextArea (BSD-3-Clause), dex2jar (Apache-2.0) and other libraries under their own licenses; see [NOTICE](NOTICE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [third-party-licenses/](third-party-licenses/).
+ClassRevive is licensed under the [ClassRevive License 1.0](LICENSE): free to use, including commercially, modify and redistribute with credit; forks may not use the ClassRevive name or visual identity. The distribution bundles CFR (MIT), Vineflower, Procyon and JADX (Apache-2.0), ASM (BSD-3-Clause), FlatLaf (Apache-2.0), RSyntaxTextArea (BSD-3-Clause), dex2jar (Apache-2.0) and other libraries under their own licenses; see [NOTICE](NOTICE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [third-party-licenses/](third-party-licenses/).

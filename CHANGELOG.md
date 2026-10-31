@@ -6,6 +6,8 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 
 First public release. Requires a Java 21 JDK.
 
+ClassRevive is released under its own permissive license, the ClassRevive License 1.0 (`LICENSE`): commercial use, modification and redistribution with credit; the name and visual identity stay with the project. Bundled libraries keep their own licenses (`third-party-licenses/`).
+
 ### Engines and selection
 
 - CFR 0.152, Vineflower 1.11.1, Procyon 0.6.0 and JADX 1.5.3, each in its own worker JVM with time, heap, log and output budgets and stable outcome codes; `--engines` picks any subset, and engine outputs can be cached (`--engine-cache`).

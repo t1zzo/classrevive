@@ -11,6 +11,6 @@ Each folder is one permanent regression case produced by the failure lab (`class
 
 `./gradlew test` (and `./gradlew checkRegressions`, which runs only these cases) decompiles every case again and fails when a method drops below its minimum. A method that rises is reported as `IMPROVED`; raise its level in `expected.json` in the change that fixed it. The same check is available as `classrevive lab-check benchmarks/regressions --output <new-directory>`.
 
-**License rule.** Only commit cases derived from inputs written for this repository or under a license compatible with Apache-2.0, and say so in `provenance`. Reduced classes from third-party JARs are still derived works: keep them in `.analysis/`, which Git ignores.
+**License rule.** Only commit cases derived from inputs written for this repository or under a permissive license compatible with the ClassRevive License, and say so in `provenance`. Reduced classes from third-party JARs are still derived works: keep them in `.analysis/`, which Git ignores.
 
 To add a case: `classrevive lab <input> --output <dir>`, then `classrevive lab-minimize <dir>/failures/failure-NNNN --output <dir2>`, then `classrevive lab-promote <dir2>/minimized --output benchmarks/regressions/<name> --provenance "<source and license>"`.

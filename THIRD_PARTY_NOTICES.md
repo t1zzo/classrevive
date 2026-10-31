@@ -1,6 +1,6 @@
 # Third-party notices
 
-ClassRevive's own code is Apache-2.0 (`LICENSE`). The binary distribution bundles the components below, unmodified; their full license texts are in `third-party-licenses/`, and the attribution notices their NOTICE files require are reproduced in `NOTICE`. These permissive dependencies do not change the license of ClassRevive's own code. ClassRevive's adapters are new code written against the components' public APIs, not copied upstream implementation.
+ClassRevive's own code is under the ClassRevive License 1.0 (`LICENSE`). The binary distribution bundles the components below, unmodified; their full license texts are in `third-party-licenses/`, and the attribution notices their NOTICE files require are reproduced in `NOTICE`. These permissive dependencies do not change the license of ClassRevive's own code. ClassRevive's adapters are new code written against the components' public APIs, not copied upstream implementation.
 
 ## Decompiler engines (run unmodified in separate JVM workers)
 

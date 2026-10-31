@@ -55,7 +55,7 @@ The build has 17 Gradle modules under `modules/`, from the immutable `model` up 
 
 - Write commit messages in English, with a short imperative subject (`Fold constant string switches in the Procyon output`) of about 70 characters or fewer, and a body that explains *why* when it is not obvious.
 - Do not reference private files, samples or internal notes in messages.
-- Signing off your commits ([Developer Certificate of Origin](https://developercertificate.org/), `git commit -s`) is welcome but not required. Contributions are accepted under the project's license, [Apache-2.0](LICENSE) (section 5).
+- Signing off your commits ([Developer Certificate of Origin](https://developercertificate.org/), `git commit -s`) is welcome but not required. Contributions are accepted under the project's license, the [ClassRevive License](LICENSE) (section 5).
 
 ### Code style
 
@@ -68,7 +68,7 @@ The build has 17 Gradle modules under `modules/`, from the immutable `model` up 
 ## Adding a test fixture or regression case
 
 - Prefer fixtures the test generates itself: Java source compiled by the test, or classes written with ASM. Existing tests in each module show both patterns.
-- Committed binaries must be written for this repository or derived from inputs under a license compatible with Apache-2.0, and documented next to the file.
+- Committed binaries must be written for this repository or derived from inputs under a license compatible with the ClassRevive License (permissive licenses such as MIT, BSD or Apache-2.0), and documented next to the file.
 - Reduced classes from a third-party jar are still derived from it: do not commit them unless the original license allows it.
 - To turn a decompilation failure into a permanent regression case, use the failure lab (`classrevive lab`, `lab-minimize`, `lab-promote`) as described in [benchmarks/regressions/README.md](benchmarks/regressions/README.md), and record the provenance and license.
 

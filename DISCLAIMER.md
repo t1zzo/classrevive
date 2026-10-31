@@ -35,4 +35,4 @@ ClassRevive never loads, links or runs the classes it analyzes, but parsers and 
 
 ## No warranty
 
-ClassRevive is provided "as is", without warranties or conditions of any kind, as stated in the [Apache License 2.0](LICENSE). Recovered source may be incomplete, may not compile, and may behave differently from the original even when it compiles. You use the tool and its output at your own risk.
+ClassRevive is provided "as is", without warranties or conditions of any kind, as stated in the [ClassRevive License](LICENSE). Recovered source may be incomplete, may not compile, and may behave differently from the original even when it compiles. You use the tool and its output at your own risk.
