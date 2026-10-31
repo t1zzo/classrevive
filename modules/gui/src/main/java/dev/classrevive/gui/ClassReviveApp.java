@@ -8,7 +8,7 @@ import javax.swing.*;
 
 /** Phase G3: starts the desktop application ({@code classrevive gui [file]} or the {@code classrevive-gui} launcher). */
 public final class ClassReviveApp {
-    public static final String VERSION = "0.1.0-dev";
+    public static final String VERSION = "0.1.0";
 
     private ClassReviveApp() {}
 

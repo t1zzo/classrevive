@@ -2,7 +2,7 @@
 
 All notable changes to ClassRevive are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Before 1.0.0, minor versions may change command options and report fields; report schema changes stay additive within `schema_version` 1.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-31
 
 First public release. Requires a Java 21 JDK.
 

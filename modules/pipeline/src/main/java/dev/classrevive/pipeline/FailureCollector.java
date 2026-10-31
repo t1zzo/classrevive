@@ -142,7 +142,7 @@ public final class FailureCollector {
         var categories = new TreeMap<String,Long>();
         cases.forEach(item -> categories.merge(item.category(), 1L, Long::sum));
         var summary = new TreeMap<String,Object>();
-        summary.put("schema_version", 1); summary.put("kind", "failure-lab"); summary.put("tool_version", "0.1.0-dev");
+        summary.put("schema_version", 1); summary.put("kind", "failure-lab"); summary.put("tool_version", "0.1.0");
         summary.put("cases", (long) cases.size()); summary.put("signatures", (long) groups.size());
         summary.put("categories", categories); summary.put("groups", groups);
         summary.put("behavior", "NOT_VERIFIED");

@@ -156,7 +156,7 @@ tasks.register("checkRegressions") {
 }
 allprojects {
     group = "dev.classrevive"
-    version = "0.1.0-dev"
+    version = "0.1.0"
     repositories { mavenCentral() }
 }
 subprojects {
