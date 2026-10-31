@@ -4,14 +4,14 @@ Copyright 2026 ClassRevive contributors
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 The binary distribution bundles third-party software, unmodified. Each
-component's license is in licenses/, and THIRD_PARTY_NOTICES.md lists every
+component's license is in third-party-licenses/, and THIRD_PARTY_NOTICES.md lists every
 component with its version, license and source. The attribution notices below
 are reproduced from the NOTICE files of the bundled Apache-2.0 works, as
 Section 4(d) of the Apache License requires.
 
 -------------------------------------------------------------------------------
 JADX 1.5.3 (core, input-api, java-input, dex-input, zip)
-Full NOTICE: licenses/JADX-NOTICE.txt
+Full NOTICE: third-party-licenses/JADX-NOTICE.txt
 -------------------------------------------------------------------------------
 The majority of jadx is written and copyrighted by me (Skylot)
 and released under the Apache 2.0 license.
@@ -28,7 +28,7 @@ lists are bundled here under their own licenses (see below).
 
 -------------------------------------------------------------------------------
 dex2jar 2.4.38 (lib/dex2jar)
-Full NOTICE: licenses/dex2jar-NOTICE.txt
+Full NOTICE: third-party-licenses/dex2jar-NOTICE.txt
 -------------------------------------------------------------------------------
 dex2jar - Tools to work with android .dex and java .class files
 Copyright (c) 2009-2021 Panxiaobo
@@ -36,7 +36,7 @@ Copyright (c) 2009-2021 Panxiaobo
 -------------------------------------------------------------------------------
 Android Open Source Project dx (repackaged, unmodified, inside dex2jar's
 d2j-external jar in lib/dex2jar)
-Full NOTICE: licenses/AOSP-dx-NOTICE.txt
+Full NOTICE: third-party-licenses/AOSP-dx-NOTICE.txt
 -------------------------------------------------------------------------------
 Copyright (c) 2005-2008, The Android Open Source Project
 
@@ -48,7 +48,7 @@ forks. Procyon 0.6.0, Gson 2.13.1, Error Prone annotations 2.38.0, FlatLaf
 3.7.2 and OpenHFT zero-allocation-hashing 0.16 are Apache-2.0 and have no
 NOTICE file at their pinned versions.
 
-Non-Apache components, under their own licenses in licenses/:
+Non-Apache components, under their own licenses in third-party-licenses/:
 - ASM 9.11.1 and 9.10.1 (BSD-3-Clause), Copyright (c) 2000-2011 INRIA, France Telecom
 - CFR 0.152 (MIT), Copyright (c) 2011-2019 Lee Benfield
 - Raung 0.1.1 (MIT), Copyright (c) 2021-present Skylot and other contributors

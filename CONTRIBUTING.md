@@ -36,7 +36,7 @@ On Windows, use `gradlew.bat` (or `.\gradlew` in PowerShell). This runs every un
 
 The desktop tests detect a headless environment and skip what needs a display. `ScreenshotTour` is opt-in and does not run by default.
 
-Every downloaded dependency is checked against `gradle/verification-metadata.xml`. If you add or update a dependency, regenerate the metadata with `./gradlew --write-verification-metadata sha256 help`, review the diff, and update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `licenses/` for anything that ships in the distribution. New dependencies need a license and transitive-dependency review; strong copyleft licenses (such as GPL or AGPL) cannot be bundled.
+Every downloaded dependency is checked against `gradle/verification-metadata.xml`. If you add or update a dependency, regenerate the metadata with `./gradlew --write-verification-metadata sha256 help`, review the diff, and update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `third-party-licenses/` for anything that ships in the distribution. New dependencies need a license and transitive-dependency review; strong copyleft licenses (such as GPL or AGPL) cannot be bundled.
 
 ## Project layout
 

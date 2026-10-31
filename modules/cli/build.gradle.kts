@@ -153,7 +153,7 @@ distributions {
             from(rootProject.file("SECURITY.md"))
             from(rootProject.file("CONTRIBUTING.md"))
             from(rootProject.file("docs")) { include(publicDocs); into("docs") }
-            from(rootProject.file("licenses")) { into("licenses") }
+            from(rootProject.file("third-party-licenses")) { into("third-party-licenses") }
         }
     }
 }

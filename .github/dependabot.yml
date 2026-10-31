@@ -6,7 +6,7 @@
 #   ./gradlew --write-verification-metadata sha256 help
 #
 # Review the diff (only the bumped components and their new transitives should change) and compare the new hashes with
-# the ones Maven Central publishes before committing. Also update THIRD_PARTY_NOTICES.md and licenses/ when a
+# the ones Maven Central publishes before committing. Also update THIRD_PARTY_NOTICES.md and third-party-licenses/ when a
 # distributed dependency changes version or license.
 #
 # The scoreboard corpora in modules/cli/build.gradle.kts are pinned on purpose (benchmark inputs, not dependencies of
