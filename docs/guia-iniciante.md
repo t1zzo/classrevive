@@ -42,7 +42,7 @@ Baixe o zip da versão mais recente na [página de Releases](https://github.com/
 | `bin/` | os atalhos para abrir: `classrevive-gui` (aplicativo desktop) e `classrevive` (linha de comando), com versões `.bat` para Windows |
 | `lib/` | o programa e os descompiladores que ele usa |
 | `docs/` | esta documentação |
-| `licenses/` | as licenças das bibliotecas incluídas |
+| `third-party-licenses/` | as licenças das bibliotecas incluídas |
 
 Para conferir que funciona, abra um terminal nessa pasta e rode:
 

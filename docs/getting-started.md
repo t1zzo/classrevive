@@ -42,7 +42,7 @@ Download the zip of the latest release from the [Releases page](https://github.c
 | `bin/` | the launchers: `classrevive-gui` (desktop application) and `classrevive` (command line), with `.bat` versions for Windows |
 | `lib/` | the program and the decompilers it runs |
 | `docs/` | this documentation |
-| `licenses/` | license texts of the bundled libraries |
+| `third-party-licenses/` | license texts of the bundled libraries |
 
 To check that it works, open a terminal in that folder and run:
 

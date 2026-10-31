@@ -131,15 +131,6 @@ Obfuscator and product names (Zelix KlassMaster, Allatori, DashO, Stringer, ProG
 - [Benchmarks](docs/benchmarks.md) · [Changelog](CHANGELOG.md)
 - Experimental: [pass API](docs/pass-sdk.md), [sandbox](docs/sandbox.md), [behavior protocol](docs/behavior-protocol.md)
 
-## Roadmap
-
-ClassRevive is pre-1.0: command options and report fields may still change between minor versions. Next on the list:
-
-- A runtime image per operating system, so a separate JDK install is no longer needed.
-- Reversal of more obfuscators, each backed by fixtures that can be redistributed.
-- Behavioral comparison in disposable virtual machines. Target execution stays disabled until that exists, and it will never fall back to running on the host.
-
-[docs/status.md](docs/status.md) lists what works today, with the evidence, and what remains.
 
 ## Contributing
 
@@ -147,4 +138,4 @@ Bug reports, fixtures and pull requests are welcome; see [CONTRIBUTING.md](CONTR
 
 ## License
 
-ClassRevive is licensed under the [Apache License 2.0](LICENSE). The distribution bundles CFR (MIT), Vineflower, Procyon and JADX (Apache-2.0), ASM (BSD-3-Clause), FlatLaf (Apache-2.0), RSyntaxTextArea (BSD-3-Clause), dex2jar (Apache-2.0) and other libraries under their own licenses; see [NOTICE](NOTICE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [licenses/](licenses/).
+ClassRevive is licensed under the [Apache License 2.0](LICENSE). The distribution bundles CFR (MIT), Vineflower, Procyon and JADX (Apache-2.0), ASM (BSD-3-Clause), FlatLaf (Apache-2.0), RSyntaxTextArea (BSD-3-Clause), dex2jar (Apache-2.0) and other libraries under their own licenses; see [NOTICE](NOTICE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [third-party-licenses/](third-party-licenses/).

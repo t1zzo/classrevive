@@ -11,4 +11,4 @@
 - [ ] Nothing loads, links or runs analyzed classes
 - [ ] No private or third-party binaries, local paths or secrets are added
 - [ ] User-facing changes are reflected in the docs (and both `messages*.properties` for the desktop app)
-- [ ] New or updated dependencies: `gradle/verification-metadata.xml`, `THIRD_PARTY_NOTICES.md` and `licenses/` are updated
+- [ ] New or updated dependencies: `gradle/verification-metadata.xml`, `THIRD_PARTY_NOTICES.md` and `third-party-licenses/` are updated

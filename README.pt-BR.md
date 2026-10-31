@@ -133,15 +133,6 @@ Os nomes de ofuscadores e produtos (Zelix KlassMaster, Allatori, DashO, Stringer
 - [Benchmarks](docs/benchmarks.md) · [Changelog](CHANGELOG.md) (em inglês)
 - Experimental: [API de passes](docs/pass-sdk.md), [sandbox](docs/sandbox.md), [protocolo de comportamento](docs/behavior-protocol.md) (em inglês)
 
-## Próximos passos
-
-O ClassRevive ainda não chegou à versão 1.0: opções de comando e campos de relatório podem mudar entre versões menores. Os próximos itens da lista:
-
-- Uma imagem de execução por sistema operacional, para não precisar mais instalar um JDK à parte.
-- Reversão de mais ofuscadores, cada uma apoiada em fixtures que possam ser redistribuídos.
-- Comparação de comportamento em máquinas virtuais descartáveis. A execução do código analisado continua desligada até isso existir, e nunca vai cair para execução na máquina do usuário.
-
-O [docs/status.md](docs/status.md) (em inglês) lista o que funciona hoje, com as evidências, e o que falta.
 
 ## Contribuir
 
@@ -149,4 +140,4 @@ Relatos de bugs, fixtures e pull requests são bem-vindos; veja o [CONTRIBUTING.
 
 ## Licença
 
-O ClassRevive é licenciado sob a [Apache License 2.0](LICENSE). A distribuição inclui CFR (MIT), Vineflower, Procyon e JADX (Apache-2.0), ASM (BSD-3-Clause), FlatLaf (Apache-2.0), RSyntaxTextArea (BSD-3-Clause), dex2jar (Apache-2.0) e outras bibliotecas, cada uma sob a sua licença; veja [NOTICE](NOTICE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) e [licenses/](licenses/).
+O ClassRevive é licenciado sob a [Apache License 2.0](LICENSE). A distribuição inclui CFR (MIT), Vineflower, Procyon e JADX (Apache-2.0), ASM (BSD-3-Clause), FlatLaf (Apache-2.0), RSyntaxTextArea (BSD-3-Clause), dex2jar (Apache-2.0) e outras bibliotecas, cada uma sob a sua licença; veja [NOTICE](NOTICE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) e [third-party-licenses/](third-party-licenses/).
