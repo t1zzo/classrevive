@@ -21,6 +21,10 @@ updates:
       default-days: 7
     open-pull-requests-limit: 5
     labels: [dependencies]
+    # Major versions change APIs and need a reviewed verification-metadata update; bump them by hand.
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
     groups:
       gradle-minor-and-patch:
         update-types: [minor, patch]
