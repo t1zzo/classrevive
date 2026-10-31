@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Validates gradle/wrapper/gradle-wrapper.jar against the published checksums before any Gradle run.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          validate-wrappers: true
+          cache-provider: basic
+
+      - name: Test and build the distribution
+        run: ./gradlew --no-daemon test :cli:installDist :cli:distZip
+
+      # Reads classes ClassRevive itself built; nothing is loaded or run.
+      - name: CLI smoke test
+        run: |
+          cli=modules/cli/build/install/classrevive/bin/classrevive
+          jar=$(ls modules/cli/build/install/classrevive/lib/model-*.jar)
+          "$cli" --version
+          "$cli" engines
+          "$cli" inspect "$jar"
+          "$cli" decompile "$jar" --output "$RUNNER_TEMP/decompile-smoke"
+          test -f "$RUNNER_TEMP/decompile-smoke/report.json"
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-reports-${{ matrix.os }}
+          path: modules/*/build/reports/tests/test/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload distribution
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: classrevive-distribution
+          path: modules/cli/build/distributions/classrevive-*.zip
+          retention-days: 14
+          if-no-files-found: error

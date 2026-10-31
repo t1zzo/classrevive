@@ -1,0 +1,56 @@
+ClassRevive
+Copyright 2026 ClassRevive contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The binary distribution bundles third-party software, unmodified. Each
+component's license is in licenses/, and THIRD_PARTY_NOTICES.md lists every
+component with its version, license and source. The attribution notices below
+are reproduced from the NOTICE files of the bundled Apache-2.0 works, as
+Section 4(d) of the Apache License requires.
+
+-------------------------------------------------------------------------------
+JADX 1.5.3 (core, input-api, java-input, dex-input, zip)
+Full NOTICE: licenses/JADX-NOTICE.txt
+-------------------------------------------------------------------------------
+The majority of jadx is written and copyrighted by me (Skylot)
+and released under the Apache 2.0 license.
+Copyright 2015, Skylot
+
+Various portions of the code including dx library are taken from
+the Android Open Source Project.
+Copyright (C) 2007 The Android Open Source Project
+
+The JADX NOTICE also lists libraries of the JADX GUI and command line
+(JCommander, Logback, Image Viewer, JFontChooser, icon sets); they are not
+part of this distribution. The ASM, SLF4J and RSyntaxTextArea libraries it
+lists are bundled here under their own licenses (see below).
+
+-------------------------------------------------------------------------------
+dex2jar 2.4.38 (lib/dex2jar)
+Full NOTICE: licenses/dex2jar-NOTICE.txt
+-------------------------------------------------------------------------------
+dex2jar - Tools to work with android .dex and java .class files
+Copyright (c) 2009-2021 Panxiaobo
+
+-------------------------------------------------------------------------------
+Android Open Source Project dx (repackaged, unmodified, inside dex2jar's
+d2j-external jar in lib/dex2jar)
+Full NOTICE: licenses/AOSP-dx-NOTICE.txt
+-------------------------------------------------------------------------------
+Copyright (c) 2005-2008, The Android Open Source Project
+
+-------------------------------------------------------------------------------
+Other bundled components
+-------------------------------------------------------------------------------
+Vineflower 1.11.1 (Apache-2.0) is derived from Fernflower and its successor
+forks. Procyon 0.6.0, Gson 2.13.1, Error Prone annotations 2.38.0, FlatLaf
+3.7.2 and OpenHFT zero-allocation-hashing 0.16 are Apache-2.0 and have no
+NOTICE file at their pinned versions.
+
+Non-Apache components, under their own licenses in licenses/:
+- ASM 9.11.1 and 9.10.1 (BSD-3-Clause), Copyright (c) 2000-2011 INRIA, France Telecom
+- CFR 0.152 (MIT), Copyright (c) 2011-2019 Lee Benfield
+- Raung 0.1.1 (MIT), Copyright (c) 2021-present Skylot and other contributors
+- SLF4J API 2.0.17 (MIT), Copyright (c) 2004-2022 QOS.ch Sarl (Switzerland)
+- RSyntaxTextArea 4.0.1 (BSD-3-Clause), Copyright (c) 2021, Robert Futrell

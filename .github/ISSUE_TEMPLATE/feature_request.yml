@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a new capability or an improvement.
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues and discussions first. Open questions and ideas that are not yet concrete fit better in Discussions.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what stops you today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should ClassRevive do? Commands, options or report fields you have in mind are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Workarounds or other tools you have tried.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This does not require running, loading or emulating the analyzed program.
+          required: true
+        - label: I did not attach private or third-party binaries.
+          required: true

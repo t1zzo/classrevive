@@ -1,0 +1,38 @@
+# Dependency updates.
+#
+# Gradle: every resolved artifact is hash-checked by gradle/verification-metadata.xml, so a Dependabot PR that bumps a
+# dependency fails CI until the metadata is regenerated on the PR branch:
+#
+#   ./gradlew --write-verification-metadata sha256 help
+#
+# Review the diff (only the bumped components and their new transitives should change) and compare the new hashes with
+# the ones Maven Central publishes before committing. Also update THIRD_PARTY_NOTICES.md and licenses/ when a
+# distributed dependency changes version or license.
+#
+# The scoreboard corpora in modules/cli/build.gradle.kts are pinned on purpose (benchmark inputs, not dependencies of
+# ClassRevive); close any update that touches them.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    groups:
+      gradle-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels: [dependencies, ci]
+    groups:
+      github-actions:
+        patterns: ['*']

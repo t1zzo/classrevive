@@ -1,0 +1,9 @@
+.gradle/
+.tools/
+**/build/
+*.log
+.idea/
+*.iml
+samples/
+.gradle-user/
+.analysis/

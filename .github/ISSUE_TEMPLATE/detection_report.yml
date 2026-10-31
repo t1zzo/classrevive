@@ -1,0 +1,57 @@
+name: Obfuscation detection false positive / negative
+description: The obfuscation diagnosis named the wrong tool, missed one, or reported the wrong confidence.
+labels: [detection, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Detection is a static heuristic: it reports evidence and a suggestion, never proof. The rules, weights and thresholds are in [docs/obfuscation-detection.md](https://github.com/t1zzo/classrevive/blob/main/docs/obfuscation-detection.md).
+
+        **Do not attach the file.** Obfuscated jars are often private or third-party software. Paste the diagnosis output instead, and, when you can, describe how to make an input that shows the problem (a public library jar processed with a named obfuscator and settings, or code you wrote).
+  - type: checkboxes
+    id: rights
+    attributes:
+      label: Input rights
+      options:
+        - label: I have the right to analyze the input this report is about.
+          required: true
+        - label: I did not attach private or third-party binaries, secrets or proprietary source.
+          required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - False positive (an obfuscator was reported but the input is not obfuscated by it)
+        - False negative (an obfuscator was used but not reported)
+        - Wrong tool (another obfuscator was reported)
+        - Wrong confidence (right tool, wrong level)
+    validations:
+      required: true
+  - type: input
+    id: expected
+    attributes:
+      label: What produced the input?
+      description: The compiler, language (Java, Kotlin, Scala…), shrinker or obfuscator, with version and settings if known. Write "unknown" if you do not know.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Diagnosis output
+      description: The obfuscation section of `classrevive diagnose <input> --output <folder>` (`report.txt`), or the desktop app's obfuscation check. Remove class or string names you may not share.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to make a similar input
+      description: Optional. Steps to build a shareable input that shows the same result.
+  - type: input
+    id: version
+    attributes:
+      label: ClassRevive version
+      description: Output of `classrevive --version`, or the commit you built.
+    validations:
+      required: true

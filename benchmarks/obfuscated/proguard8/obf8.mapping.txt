@@ -1,0 +1,29 @@
+fixtures.obf.Ledger -> fixtures.obf.a:
+# {"fileName":"Ledger.java","id":"sourceFile"}
+    long serialVersionUID -> a
+    java.lang.String owner -> b
+    int balance -> c
+    int audits -> d
+    14:16:void <init>(java.lang.String) -> <init>
+    19:21:void record(int) -> a
+    24:24:int total() -> a
+    28:28:int clamp(int) -> b
+    32:33:void writeObject(java.io.ObjectOutputStream) -> a
+fixtures.obf.Ledger$Entry -> fixtures.obf.b:
+# {"fileName":"Ledger.java","id":"sourceFile"}
+    int amount -> a
+    38:40:void <init>(int) -> <init>
+    43:43:int doubled() -> b
+    47:47:int value() -> a
+fixtures.obf.Main -> fixtures.obf.Main:
+# {"fileName":"Main.java","id":"sourceFile"}
+    4:4:void <init>() -> <init>
+    6:10:java.lang.String describe(int) -> describe
+fixtures.obf.Vault -> fixtures.obf.c:
+# {"fileName":"Vault.java","id":"sourceFile"}
+    int reads -> a
+    4:4:void <init>() -> <init>
+    8:10:java.lang.String unmask(java.lang.String) -> a
+    14:14:int bump(int) -> a
+    18:19:java.lang.String label() -> a
+    23:24:java.lang.String trail() -> b

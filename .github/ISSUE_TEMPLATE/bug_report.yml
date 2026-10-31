@@ -1,0 +1,73 @@
+name: Bug report
+description: A crash, a wrong result or a failure in the CLI, the desktop app or a report.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not attach private, proprietary or third-party binaries** (jars, APKs, executables, class files) or source you are not allowed to share. The best report is a minimal case: a few lines of Java you wrote, compiled with stated flags, or a public library jar named by its Maven coordinates.
+
+        Security problems (for example a crafted input that escapes a limit or gets code executed) go to the [security policy](https://github.com/t1zzo/classrevive/security/policy), not here.
+  - type: checkboxes
+    id: rights
+    attributes:
+      label: Input rights
+      options:
+        - label: I have the right to analyze the input this report is about.
+          required: true
+        - label: I did not attach private or third-party binaries, secrets or proprietary source.
+          required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Recompiling is not behavioral equivalence; say which one you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The exact command (or the steps in the desktop app) and a minimal input. For a public library, give its Maven coordinates (group:artifact:version).
+      placeholder: |
+        javac --release 17 -d out Example.java && jar cf example.jar -C out .
+        classrevive decompile example.jar --output result
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Input reading (jar, APK, executable)
+        - Engine output (CFR, Vineflower, Procyon, JADX)
+        - Recompilation or verification
+        - Selection or composition
+        - Transforms, renaming or deobfuscation
+        - Reports
+        - Desktop application
+        - CLI or distribution
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ClassRevive version
+      description: Output of `classrevive --version`, or the commit you built.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Output of `java -version` and `classrevive engines`, and your operating system.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: The relevant part of `report.txt` or `report.json`, or a short compiler or engine diagnostic. Remove local paths, user names and any string from a file you may not share.
+      render: text

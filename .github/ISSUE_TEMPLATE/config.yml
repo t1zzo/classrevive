@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/t1zzo/classrevive/security/policy
+    about: Report vulnerabilities privately, as described in the security policy. Do not open a public issue.
+  - name: Questions and ideas
+    url: https://github.com/t1zzo/classrevive/discussions
+    about: Ask how to use ClassRevive or discuss ideas that are not yet a concrete request.

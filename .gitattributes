@@ -1,0 +1,12 @@
+* text=auto
+*.java text eol=lf
+*.kts text eol=lf
+*.md text eol=lf
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary
+*.apk binary
+*.dex binary
+benchmarks/android/package/AndroidManifest.xml binary
+benchmarks/obfuscated/**/*.mapping.txt text eol=lf
+benchmarks/regressions/**/*.json text eol=lf

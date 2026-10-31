@@ -1,0 +1,123 @@
+# ClassRevive corpus (phase 2CD), library samples: as skidfuscator.hocon, without "Pure Encryption" (pure function
+# hashing). On jars of library size Skidfuscator 2.1.0 runs out of hash candidates and throws ("No method selected for
+# hashing", "selectedMethod is null"); the authored fixture keeps it enabled.
+#
+# Original header: ClassRevive corpus (phase 2CD): Skidfuscator's default configuration (defaultConfig.hocon at the pinned commit), with
+# an "exclude" list that keeps only the JDK packages. The default list (DefaultExempts.DEFAULT_EXEMPTS_V2) also skips
+# every class under com.google, org.apache, org.json, org.objectweb, net.sf, ..., so most benchmark libraries would come
+# out unobfuscated.
+exempt: []
+exclude: ["@class java.*", "@class javax.*", "@class jdk.*", "@class sun.*", "@class com.sun.*"]
+
+libs: []
+
+stringEncryption {
+  type: STANDARD
+  enabled: true
+  exempt: []
+}
+
+numberEncryption {
+  enabled: true
+  exempt: []
+}
+
+intAnnotationEncryption {
+  enabled: true
+  exempt: []
+}
+
+stringAnnotationEncryption {
+  enabled: true
+  exempt: []
+}
+
+exceptionReturn {
+  enabled: true
+  exempt: []
+}
+
+flowCondition {
+  enabled: true
+  exempt: []
+}
+
+flowException {
+  enabled: true
+  strength: AGGRESSIVE
+  exempt: []
+}
+
+flowRange {
+  enabled: true
+  exempt: []
+}
+
+flowFactoryMaker {
+  enabled: true
+  exempt: []
+}
+
+flowSwitch {
+  enabled: true
+  exempt: []
+}
+
+outliner {
+  enabled: true
+  exempt: []
+}
+
+ahegao {
+  enabled: true
+  exempt: []
+}
+
+native: {
+  enabled: false
+  exempt: []
+}
+
+driver: {
+  enabled: false
+}
+
+reference {
+  enabled: false
+}
+
+fileCrasher: {
+  enabled: false
+}
+
+classRenamer {
+  enabled: false
+  type: CUSTOM
+  prefix: "skido/"
+  chars: [
+    "K"
+    "oO",
+    "o0"
+  ]
+  depth: 3
+}
+
+methodRenamer {
+  enabled: false
+  type: CUSTOM
+  chars: [
+    "K"
+    "oO",
+    "o0"
+  ]
+  depth: 3
+}
+
+fieldRenamer {
+  enabled: false
+  type: ALPHABETICAL
+}
+
+pureEncryption {
+  enabled: false
+}

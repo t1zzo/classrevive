@@ -1,0 +1,81 @@
+# DRAFT. This workflow builds release files; it does not create a GitHub release or upload anything outside this run.
+#
+# It only runs when started by hand (Actions → Release build → Run workflow). To build on every version tag, add
+#
+#   push:
+#     tags: ['v*']
+#
+# under `on:` once the first release is approved. Publishing the release itself (gh release create with the zip and
+# SHA256SUMS, notes from CHANGELOG.md) is a separate, deliberate maintainer step and is not automated here.
+name: Release build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build release files
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write # attestation signing (Sigstore)
+      attestations: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          validate-wrappers: true
+          cache-disabled: true
+
+      - name: Test and build the distribution
+        run: ./gradlew --no-daemon test :cli:installDist :cli:distZip
+
+      # On a tag, the zip must carry the tag's version (v0.1.0 → classrevive-0.1.0.zip), so a -dev build is never attested.
+      - name: Check the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test -f "modules/cli/build/distributions/classrevive-${GITHUB_REF_NAME#v}.zip"
+
+      - name: Write SHA256SUMS
+        working-directory: modules/cli/build/distributions
+        run: |
+          sha256sum classrevive-*.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      # Attestations of a public repository are recorded in the public Sigstore transparency log, so only tags get one.
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: modules/cli/build/distributions/classrevive-*.zip
+
+      - name: Upload release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: classrevive-release
+          path: |
+            modules/cli/build/distributions/classrevive-*.zip
+            modules/cli/build/distributions/SHA256SUMS
+          retention-days: 30
+          if-no-files-found: error
