@@ -210,7 +210,7 @@ public final class BenchmarkRunner {
             + "\n## Failure signatures (failure lab)\n\n" + FailureCollector.markdown(lab, 20)
             + "\nCases are in [failures/](failures/failures.md); each `failure-NNNN` directory holds its classes and evidence.\n";
         var report = new TreeMap<String,Object>();
-        report.put("schema_version", 1); report.put("kind", "benchmark"); report.put("tool_version", "0.1.0-dev");
+        report.put("schema_version", 1); report.put("kind", "benchmark"); report.put("tool_version", "0.1.0");
         report.put("environment", EvidenceReport.environment()); report.put("behavior", "NOT_VERIFIED");
         report.put("method", "Fixed-order single trial; variants sequential; combined engines and candidate compilations 2 to 4 concurrent (half the processors); fresh worker JVMs; no warmup; compiler-guided source repair only in the combined variant");
         report.put("timeout_seconds_per_worker", timeout.toSeconds()); report.put("samples", inputs.size());

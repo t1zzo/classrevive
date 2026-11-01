@@ -188,7 +188,7 @@ public final class EvidenceReport {
                            Map<String,Object> obfuscation, Map<String,Object> embeddedLibraries, Map<String,Object> compiler,
                            Map<String,Object> stubs, Map<String,Object> deobfuscation) throws IOException {
         var data = new TreeMap<String,Object>();
-        data.put("schema_version", 1); data.put("kind", "decompilation"); data.put("tool_version", "0.1.0-dev");
+        data.put("schema_version", 1); data.put("kind", "decompilation"); data.put("tool_version", "0.1.0");
         data.put("input_sha256", inputHash); data.put("environment", environment());
         data.put("behavior", "NOT_VERIFIED"); data.put("engines", job.engines().stream().map(EvidenceReport::engine).toList());
         data.put("verification", verification(job.selection().verification()));

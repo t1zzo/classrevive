@@ -5,7 +5,7 @@ import java.util.*;
 
 /** Phase 2CV: a short overview, and per-command help with options, defaults, examples and exit codes. */
 final class Help {
-    static final String VERSION = "0.1.0-dev";
+    static final String VERSION = "0.1.0";
 
     /** {@code summary}: one line for the overview; {@code text}: the full help of the command. */
     record Entry(String group, String summary, String text) {}
