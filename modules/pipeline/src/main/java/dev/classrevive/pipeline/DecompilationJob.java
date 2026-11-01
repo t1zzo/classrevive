@@ -645,7 +645,11 @@ public final class DecompilationJob {
         if (result == null || result.isEmpty()) return "";
         var out = new StringBuilder("Inferred stubs: ").append(result.classes().size()).append(" missing class(es) in ").append(result.packages().size())
             .append(" package(s) were synthesized from their uses (").append(result.methods()).append(" methods, ").append(result.fields())
-            .append(" fields) and put on the compiler's class path only; results compiled against them, not against the real library")
+            .append(" fields")
+            // Phase 2DJ: supertypes inferred from the bytecode, and how many were only ordered by a guess.
+            .append(result.supertypes() == 0 ? "" : ", " + result.supertypes() + " supertype link(s)"
+                + (result.guessedOrder() == 0 ? "" : " (" + result.guessedOrder() + " ordered without evidence)"))
+            .append(") and put on the compiler's class path only; results compiled against them, not against the real library")
             .append(result.truncated() ? "; the stub limit was reached" : "").append(". List: stubs/stubs.txt\n");
         result.packages().entrySet().stream().sorted(Map.Entry.<String,Integer>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
             .limit(10).forEach(entry -> out.append("  ").append(entry.getKey().isEmpty() ? "(default package)" : entry.getKey()).append(": ").append(entry.getValue()).append('\n'));
@@ -656,6 +660,7 @@ public final class DecompilationJob {
         var data = new TreeMap<String,Object>();
         data.put("classes", result.classes().size()); data.put("methods", result.methods()); data.put("fields", result.fields());
         data.put("packages", new TreeMap<>(result.packages())); data.put("truncated", result.truncated());
+        data.put("supertypes", result.supertypes()); data.put("supertypes_ordered_without_evidence", result.guessedOrder());
         data.put("jar", "stubs/" + STUB_JAR); data.put("list", "stubs/stubs.txt");
         data.put("meaning", "Types referenced by the input and supplied by nobody (not the input, the --classpath JARs or the JDK) were "
             + "synthesized from their uses and put on the compiler's class path only. Compilation and signature results that rely on "
