@@ -30,17 +30,29 @@ import org.objectweb.asm.signature.SignatureVisitor;
  * signatures included); with one parameter, a method or field of type {@code Object} whose result the input casts at
  * once is declared with that parameter, as javac's cast shows;</li>
  * <li>checked JDK exceptions caught around a range whose only call is a stub method's;</li>
- * <li>annotation elements (with defaults) and enum constants, from annotation values and enum-shaped uses.</li>
+ * <li>annotation elements (with defaults) and enum constants, from annotation values and enum-shaped uses;</li>
+ * <li>Phase 2DJ: supertypes between missing types (and JDK supertypes), from values the bytecode passes where another type
+ * is declared ({@link StubTypeFlow}); the element type of raw collection members, from javac's casts after
+ * {@code next()} and {@code get(int)}; {@code Iterable} for a stub iterated through its own {@code iterator()}; and the
+ * {@code throws} clause of an input override, copied to the missing superclass's method.</li>
  * </ul>
  * Stub methods are concrete (interface methods are {@code default}) and their bodies only throw, so no subclass is
- * forced to implement anything. Unknown supertypes are {@code Object} ({@code RuntimeException} for throwables).
+ * forced to implement anything. Supertypes without evidence are {@code Object} ({@code RuntimeException} for throwables).
  */
 public final class StubSynthesizer {
     private StubSynthesizer() {}
     public static final int MAX_STUBS = 20_000;
 
-    /** {@code classes}: internal names of the stubs written; {@code packages}: package to stub count. */
-    public record Result(SortedSet<String> classes, SortedMap<String,Integer> packages, int methods, int fields, boolean truncated) {
+    /**
+     * {@code classes}: internal names of the stubs written; {@code packages}: package to stub count; {@code supertypes}:
+     * superclass and interface links between stubs or to JDK types, inferred from the bytecode (Phase 2DJ), of which
+     * {@code guessedOrder} only order two required supertypes that the evidence did not order.
+     */
+    public record Result(SortedSet<String> classes, SortedMap<String,Integer> packages, int methods, int fields, boolean truncated,
+                         int supertypes, int guessedOrder) {
+        public Result(SortedSet<String> classes, SortedMap<String,Integer> packages, int methods, int fields, boolean truncated) {
+            this(classes, packages, methods, fields, truncated, 0, 0);
+        }
         public boolean isEmpty() { return classes.isEmpty(); }
     }
 
@@ -57,6 +69,12 @@ public final class StubSynthesizer {
         final Set<String> genericReturns = new HashSet<>(), genericFields = new HashSet<>();
         final Map<String,String> elements = new TreeMap<>();      // annotation element -> descriptor
         final Set<String> constants = new TreeSet<>();            // enum constants
+        // Phase 2DJ: inferred supertypes (a stub superclass, else a JDK one) and element types of collection members and of Iterable.
+        String parent, jdkSuper, iterableElement;
+        boolean iterable, implemented;
+        final Set<String> lambdaMethods = new TreeSet<>();        // name+desc of the functional method lambdas implement
+        final Set<String> interfaces = new TreeSet<>(), jdkSupers = new TreeSet<>();
+        final Map<String,String> elementTypes = new HashMap<>();  // "F name" or method name+desc -> element type signature
         Stub(String name) { this.name = name; }
     }
 
@@ -66,8 +84,10 @@ public final class StubSynthesizer {
     /** @param maxStubs the stub budget; {@code truncated} is set only when a missing type was refused because of it */
     static Result synthesize(Map<String,byte[]> originals, List<Path> dependencyJars, Path outputJar, int maxStubs) throws IOException {
         var nodes = new TreeMap<String,ClassModel>();
+        var flow = new StubTypeFlow.Evidence();
         for (var entry : originals.entrySet()) {
-            try { nodes.put(entry.getKey(), ClassModel.read(entry.getValue())); } catch (RuntimeException unreadable) { /* no evidence */ }
+            try { nodes.put(entry.getKey(), ClassModel.read(entry.getValue())); } catch (RuntimeException unreadable) { continue; /* no evidence */ }
+            StubTypeFlow.analyze(entry.getValue(), flow);
         }
         var supplied = new HashSet<String>(originals.keySet());
         for (var jar : dependencyJars) {
@@ -95,7 +115,11 @@ public final class StubSynthesizer {
         for (var node : nodes.values()) {
             var superStub = missing.apply(node.superName);
             if (superStub != null) superStub.extended = true;
-            for (String type : node.interfaces) { var stub = missing.apply(type); if (stub != null) stub.isInterface = true; }
+            for (String type : node.interfaces) { var stub = missing.apply(type); if (stub != null) { stub.isInterface = true; stub.implemented = true; } }
+            for (var target : node.lambdaTargets) {
+                var stub = missing.apply(target.owner());
+                if (stub != null) { stub.isInterface = true; stub.lambdaMethods.add(target.descriptor()); stub.methods.putIfAbsent(target.descriptor(), 0); }
+            }
             for (String type : node.annotations) { var stub = missing.apply(type); if (stub != null) { stub.annotation = true; stub.isInterface = true; } }
             for (String type : node.throwables) { var stub = missing.apply(type); if (stub != null) stub.throwable = true; }
             for (var arity : node.genericArity.entrySet()) {
@@ -141,6 +165,9 @@ public final class StubSynthesizer {
                     // Phase 2CW: an override declared protected (Activity.onCreate) needs a protected stub: a public one
                     // would make the override "attempting to assign weaker access privileges".
                     if (node.protectedMethods.contains(method) && superStub.methods.get(method) == 0) superStub.methods.put(method, Opcodes.ACC_PROTECTED);
+                    // Phase 2DJ: an override may throw only what the overridden method declares, so the stub declares at least that.
+                    var thrown = node.methodExceptions.get(method);
+                    if (thrown != null) superStub.throwsBy.computeIfAbsent(method, key -> new TreeSet<>()).addAll(thrown);
                 }
         }
         // Constructors that input subclasses call through super(...).
@@ -153,6 +180,8 @@ public final class StubSynthesizer {
             for (int dollar = name.lastIndexOf('$'); dollar > start; dollar = name.lastIndexOf('$', dollar - 1))
                 missing.apply(name.substring(0, dollar));
         }
+        int[] links = inferSupertypes(stubs, nodes, flow);
+        inferElements(stubs, flow);
         int methods = 0, fields = 0;
         var packages = new TreeMap<String,Integer>();
         Files.createDirectories(outputJar.getParent());
@@ -167,7 +196,209 @@ public final class StubSynthesizer {
             }
         }
         return new Result(Collections.unmodifiableSortedSet(new TreeSet<>(stubs.keySet())), Collections.unmodifiableSortedMap(packages),
-            methods, fields, truncated[0]);
+            methods, fields, truncated[0], links[0], links[1]);
+    }
+
+    /** Phase 2DJ: the kinds {@link #write} declares. */
+    private static boolean enumKind(Stub stub) { return !stub.annotation && stub.enumType && !stub.extended; }
+    private static boolean interfaceKind(Stub stub) { return !stub.annotation && !enumKind(stub) && stub.isInterface && !stub.extended && !stub.throwable; }
+    private static boolean classKind(Stub stub) { return !stub.annotation && !enumKind(stub) && !interfaceKind(stub); }
+
+    /**
+     * Phase 2DJ: supertypes from the assignments {@link StubTypeFlow} found. A value of type A used where B is declared
+     * makes B a supertype of A when A is a stub, or of A's nearest missing superclass when A is an input class whose own
+     * hierarchy does not reach B. B is used only when it is a stub or a JDK type. An interface stub can only extend
+     * interfaces, so a class-kind stub it needs becomes an interface when nothing marks it as a class. A class with
+     * several required superclasses gets the one that reaches the others; when the evidence does not order two of
+     * them, the one with fewer known subtypes is put below (counted in {@code guessedOrder}). Cycles are refused.
+     *
+     * @return {links, guessedOrder}
+     */
+    private static int[] inferSupertypes(Map<String,Stub> stubs, Map<String,ClassModel> nodes, StubTypeFlow.Evidence flow) {
+        var required = new TreeMap<String,Set<String>>();
+        for (var pair : flow.assignable()) {
+            String from = pair.get(0), to = pair.get(1);
+            if (!stubs.containsKey(to) && jdkClass(to) == null) continue;
+            Stub target = stubs.containsKey(from) ? stubs.get(from) : missingAncestor(from, to, nodes, stubs);
+            if (target == null || target.name.equals(to) || target.annotation) continue;
+            required.computeIfAbsent(target.name, key -> new TreeSet<>()).add(to);
+        }
+        // A narrowing cast between two class-kind stubs (or to a stub from a JDK class): the target is the subclass.
+        // Casts that involve an interface prove nothing, since any non-final class may be cast to or from one.
+        for (var pair : flow.casts()) {
+            var target = stubs.get(pair.get(0));
+            var from = stubs.get(pair.get(1));
+            Class<?> jdk = from == null ? jdkClass(pair.get(1)) : null;
+            if (target == null || !classKind(target) || target.isInterface) continue;
+            if (from != null ? !classKind(from) || from.isInterface : jdk == null || jdk.isInterface()) continue;
+            required.computeIfAbsent(target.name, key -> new TreeSet<>()).add(pair.get(1));
+        }
+        for (boolean changed = true; changed; ) {
+            changed = false;
+            for (var entry : required.entrySet()) {
+                if (!interfaceKind(stubs.get(entry.getKey()))) continue;
+                for (String to : entry.getValue()) {
+                    var other = stubs.get(to);
+                    if (other != null && classKind(other) && promotable(other)) { other.isInterface = true; changed = true; }
+                }
+            }
+        }
+        int links = 0, guessed = 0;
+        var edges = new TreeMap<String,Set<String>>();   // class stub -> stub superclasses it needs
+        for (var entry : required.entrySet()) {
+            var stub = stubs.get(entry.getKey());
+            for (String to : entry.getValue()) {
+                var other = stubs.get(to);
+                if (other != null && other.annotation) continue;
+                Class<?> jdk = other == null ? jdkClass(to) : null;
+                if (other != null ? interfaceKind(other) : jdk.isInterface()) {
+                    if (!reaches(to, stub.name, stubs, edges)) { stub.interfaces.add(to); links++; }
+                } else if (classKind(stub)) {
+                    if (other == null) stub.jdkSupers.add(to);
+                    else if (!reaches(to, stub.name, stubs, edges)) edges.computeIfAbsent(stub.name, key -> new TreeSet<>()).add(to);
+                }
+            }
+        }
+        // One superclass each: keep the candidate that reaches the others, ordering the rest below it when needed.
+        var subtypes = new HashMap<String,Integer>();
+        for (var targets : edges.values()) for (String to : targets) subtypes.merge(to, 1, Integer::sum);
+        for (int round = 0; round < 100_000; round++) {
+            var crowded = edges.entrySet().stream().filter(entry -> entry.getValue().size() > 1).findFirst().orElse(null);
+            if (crowded == null) break;
+            var candidates = new ArrayList<>(crowded.getValue());
+            var reach = new HashMap<String,Integer>();
+            for (String candidate : candidates)
+                reach.put(candidate, (int) candidates.stream().filter(other -> !other.equals(candidate) && reaches(candidate, other, stubs, edges)).count());
+            candidates.sort(Comparator.<String>comparingInt(reach::get).reversed().thenComparingInt(name -> subtypes.getOrDefault(name, 0)).thenComparing(name -> name));
+            String best = candidates.getFirst();
+            for (String other : candidates)
+                if (!other.equals(best) && !reaches(best, other, stubs, edges) && !reaches(other, best, stubs, edges)) {
+                    edges.computeIfAbsent(best, key -> new TreeSet<>()).add(other); guessed++;
+                }
+            crowded.setValue(new TreeSet<>(List.of(best)));
+        }
+        for (var entry : edges.entrySet()) { stubs.get(entry.getKey()).parent = entry.getValue().iterator().next(); links++; }
+        // JDK superclasses go to the top of each chain; a throwable's ancestors are throwables.
+        for (var stub : stubs.values()) {
+            if (stub.throwable) for (var up = stub; up.parent != null; ) { up = stubs.get(up.parent); up.throwable = true; }
+            if (stub.jdkSupers.isEmpty()) continue;
+            var top = stub;
+            for (int depth = 0; top.parent != null && depth < 256; depth++) top = stubs.get(top.parent);
+            for (String jdk : stub.jdkSupers) {
+                Class<?> type = jdkClass(jdk);
+                if (!extendable(type)) continue;
+                if (top.jdkSuper == null) { top.jdkSuper = jdk; links++; }
+                else if (jdkClass(top.jdkSuper).isAssignableFrom(type) && !jdk.equals(top.jdkSuper)) top.jdkSuper = jdk;
+            }
+        }
+        for (var stub : stubs.values())
+            if (stub.jdkSuper != null && stub.throwable && !Throwable.class.isAssignableFrom(jdkClass(stub.jdkSuper))) { stub.jdkSuper = null; links--; }
+        return new int[]{links, guessed};
+    }
+
+    /** The nearest missing superclass of input class {@code from}, unless its known hierarchy already reaches {@code to}. */
+    private static Stub missingAncestor(String from, String to, Map<String,ClassModel> nodes, Map<String,Stub> stubs) {
+        var node = nodes.get(from);
+        for (int depth = 0; node != null && depth < 64; depth++) {
+            if (to.equals(node.superName) || node.interfaces.contains(to)) return null;
+            var parent = node.superName == null ? null : stubs.get(node.superName);
+            if (parent != null) return parent;
+            node = nodes.get(node.superName);
+        }
+        return null;
+    }
+
+    /** Whether {@code from} reaches {@code to} through the stub parents, superclass candidates and interfaces known so far. */
+    private static boolean reaches(String from, String to, Map<String,Stub> stubs, Map<String,Set<String>> edges) {
+        var seen = new HashSet<String>();
+        var work = new ArrayDeque<String>(List.of(from));
+        while (!work.isEmpty()) {
+            String current = work.pop();
+            if (current.equals(to)) return true;
+            if (!seen.add(current)) continue;
+            var stub = stubs.get(current);
+            if (stub == null) continue;
+            work.addAll(stub.interfaces);
+            if (stub.parent != null) work.add(stub.parent);
+            work.addAll(edges.getOrDefault(current, Set.of()));
+        }
+        return false;
+    }
+
+    /** A class-kind stub can become an interface only when nothing needs it to be a class. */
+    private static boolean promotable(Stub stub) {
+        return !stub.extended && !stub.throwable && !stub.enumType && !stub.annotation && stub.constructors.isEmpty()
+            && stub.staticFields.containsAll(stub.fields.keySet()) && !stub.methods.containsValue(Opcodes.ACC_PROTECTED);
+    }
+
+    /** A JDK class a stub may extend: public, not final, with an accessible no-argument constructor for the stub's own. */
+    private static boolean extendable(Class<?> type) {
+        if (type == null || type.isInterface() || type.isEnum() || type.isRecord() || type.isArray()) return false;
+        int modifiers = type.getModifiers();
+        if (!java.lang.reflect.Modifier.isPublic(modifiers) || java.lang.reflect.Modifier.isFinal(modifiers)) return false;
+        try {
+            int constructor = type.getDeclaredConstructor().getModifiers();
+            return java.lang.reflect.Modifier.isPublic(constructor) || java.lang.reflect.Modifier.isProtected(constructor);
+        } catch (NoSuchMethodException | SecurityException | LinkageError none) { return false; }
+    }
+
+    /** A JDK type by internal name, looked up without initializing it; {@code null} for anything else. */
+    private static Class<?> jdkClass(String internalName) {
+        if (internalName == null || internalName.startsWith("[")) return null;
+        try { return Class.forName(internalName.replace('/', '.'), false, ClassLoader.getPlatformClassLoader()); }
+        catch (ClassNotFoundException | LinkageError notJdk) { return null; }
+    }
+
+    /**
+     * Phase 2DJ: element types of collection members, when every cast after {@code next()} or {@code get(int)} has one
+     * erasure, or fit together through the inferred supertypes ({@link #element}), and {@code Iterable} for a stub iterated
+     * through its own {@code iterator()}.
+     */
+    private static void inferElements(Map<String,Stub> stubs, StubTypeFlow.Evidence flow) {
+        for (var entry : flow.elements().entrySet()) {
+            String element = element(entry.getValue(), stubs);
+            String[] origin = entry.getKey().split(" ");
+            var stub = origin.length < 2 ? null : stubs.get(origin[1]);
+            if (element == null || stub == null) continue;
+            switch (origin[0]) {
+                case "F" -> stub.elementTypes.put("F " + origin[2], element);
+                case "M" -> stub.elementTypes.put(origin[2] + origin[3], element);
+                default -> stub.iterableElement = element;
+            }
+        }
+        for (String name : flow.iterated()) {
+            var stub = stubs.get(name);
+            if (stub != null && !stub.annotation && stub.methods.getOrDefault("iterator()Ljava/util/Iterator;", Opcodes.ACC_STATIC) != Opcodes.ACC_STATIC)
+                stub.iterable = true;
+        }
+    }
+    /**
+     * The element type: a candidate X (one of the cast types) that is the type of, or a subtype of, every loop variable
+     * ({@code "n "}) and the type of, or a supertype of, every {@code get(int)} cast ({@code "g "}); with several, the most
+     * general. Its generic signature is used when exactly one was seen.
+     */
+    private static String element(Set<String> seen, Map<String,Stub> stubs) {
+        var loops = new TreeSet<String>(); var gets = new TreeSet<String>();
+        for (String entry : seen) (entry.startsWith("g ") ? gets : loops).add(StubTypeFlow.erasure(entry.substring(2)));
+        var all = new TreeSet<String>(loops); all.addAll(gets);
+        var fitting = new ArrayList<String>();
+        for (String candidate : all)
+            if (loops.stream().allMatch(loop -> below(candidate, loop, stubs)) && gets.stream().allMatch(got -> below(got, candidate, stubs))) fitting.add(candidate);
+        String chosen = fitting.stream().filter(candidate -> fitting.stream().allMatch(other -> below(other, candidate, stubs))).findFirst().orElse(null);
+        if (chosen == null) return null;
+        var generic = seen.stream().map(entry -> entry.substring(2)).filter(signature -> signature.contains("<") && StubTypeFlow.erasure(signature).equals(chosen))
+            .distinct().toList();
+        return generic.size() == 1 ? generic.getFirst() : chosen;
+    }
+    /** Whether descriptor {@code sub} is {@code sup} or reaches it through the inferred stub supertypes. */
+    private static boolean below(String sub, String sup, Map<String,Stub> stubs) {
+        return sub.equals(sup) || sub.startsWith("L") && sup.startsWith("L")
+            && reaches(sub.substring(1, sub.length() - 1), sup.substring(1, sup.length() - 1), stubs, Map.of());
+    }
+    /** A collection type's descriptor with one type argument, or {@code null} when it is not a tracked collection. */
+    private static String withElement(String descriptor, String element) {
+        if (element == null || !descriptor.startsWith("L") || !StubTypeFlow.COLLECTIONS.contains(descriptor.substring(1, descriptor.length() - 1))) return null;
+        return descriptor.substring(0, descriptor.length() - 1) + "<" + element + ">;";
     }
 
     /** The stub that should declare a member: the owner itself when missing, else the nearest missing superclass of an input owner. */
@@ -190,31 +421,49 @@ public final class StubSynthesizer {
         var writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         int access = Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC;
         String superName = "java/lang/Object";
-        if (stub.annotation) access |= Opcodes.ACC_ANNOTATION | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT;
-        else if (stub.enumType && !stub.extended) { access |= Opcodes.ACC_ENUM | Opcodes.ACC_FINAL; superName = "java/lang/Enum"; }
-        else if (stub.isInterface && !stub.extended && !stub.throwable) access |= Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT;
-        else if (stub.throwable) superName = "java/lang/RuntimeException";
+        access |= kindAccess(stub);
+        if (enumKind(stub)) superName = "java/lang/Enum";
+        else if (classKind(stub) && stub.parent != null) superName = stub.parent;
+        else if (classKind(stub) && stub.jdkSuper != null) superName = stub.jdkSuper;
+        else if (classKind(stub) && stub.throwable) superName = "java/lang/RuntimeException";
         boolean isEnum = (access & Opcodes.ACC_ENUM) != 0;
         boolean isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
-        String signature = isEnum ? "Ljava/lang/Enum<L" + stub.name + ";>;" : null;
-        if (stub.typeParameters > 0 && !isEnum && !stub.annotation) {
-            var params = new StringBuilder("<");
-            for (int i = 1; i <= stub.typeParameters; i++) params.append('T').append(i).append(":Ljava/lang/Object;");
-            signature = params.append(">L").append(superName).append(";").toString();
+        var interfaces = new ArrayList<String>();
+        if (stub.annotation) interfaces.add("java/lang/annotation/Annotation");
+        else {
+            interfaces.addAll(stub.interfaces);
+            if (stub.iterable && !interfaces.contains("java/lang/Iterable")) interfaces.add("java/lang/Iterable");
+        }
+        boolean genericIterable = stub.iterable && stub.iterableElement != null;
+        String signature = null;
+        // Phase 2DJ: with a signature, javac takes the supertypes from it, so it lists the interfaces too.
+        if (isEnum || stub.typeParameters > 0 && !stub.annotation || genericIterable) {
+            var generic = new StringBuilder();
+            if (stub.typeParameters > 0 && !isEnum && !stub.annotation) {
+                generic.append('<');
+                for (int i = 1; i <= stub.typeParameters; i++) generic.append('T').append(i).append(":Ljava/lang/Object;");
+                generic.append('>');
+            }
+            generic.append(isEnum ? "Ljava/lang/Enum<L" + stub.name + ";>;" : "L" + superName + ";");
+            for (String type : interfaces)
+                generic.append(type.equals("java/lang/Iterable") && genericIterable ? "Ljava/lang/Iterable<" + stub.iterableElement + ">;" : "L" + type + ";");
+            signature = generic.toString();
         }
         int dollar = stub.name.lastIndexOf('$');
         boolean nested = dollar > stub.name.lastIndexOf('/') + 1 && stubs.containsKey(stub.name.substring(0, dollar));
         if (nested) access |= Opcodes.ACC_STATIC;
         // Every annotation type implements java.lang.annotation.Annotation, or javac refuses it in an annotation use.
         writer.visit(Opcodes.V1_8, access & ~Opcodes.ACC_STATIC, stub.name, signature, superName,
-            stub.annotation ? new String[]{"java/lang/annotation/Annotation"} : null);
+            interfaces.isEmpty() ? null : interfaces.toArray(String[]::new));
         writer.visitSource("ClassRevive inferred stub", null);
+        // Phase 2DJ: javac takes a nested type's kind from these flags, in the outer class too: an annotation listed
+        // there as a plain class was "not an annotation interface".
         if (nested) writer.visitInnerClass(stub.name, stub.name.substring(0, dollar), stub.name.substring(dollar + 1),
-            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | (access & (Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT | Opcodes.ACC_ANNOTATION)));
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | kindAccess(stub));
         for (var inner : stubs.values()) {
             int innerDollar = inner.name.lastIndexOf('$');
             if (innerDollar > inner.name.lastIndexOf('/') + 1 && inner.name.substring(0, innerDollar).equals(stub.name))
-                writer.visitInnerClass(inner.name, stub.name, inner.name.substring(innerDollar + 1), Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC);
+                writer.visitInnerClass(inner.name, stub.name, inner.name.substring(innerDollar + 1), Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | kindAccess(inner));
         }
         if (isEnum) {
             String self = "L" + stub.name + ";";
@@ -249,7 +498,7 @@ public final class StubSynthesizer {
             int fieldAccess = Opcodes.ACC_PUBLIC | (stub.staticFields.contains(field.getKey()) || isInterface ? Opcodes.ACC_STATIC : 0);
             if (isInterface) fieldAccess |= Opcodes.ACC_FINAL;
             String fieldSignature = stub.typeParameters == 1 && !isInterface && (fieldAccess & Opcodes.ACC_STATIC) == 0 && field.getValue().equals("Ljava/lang/Object;")
-                && stub.genericFields.contains(field.getKey()) ? "TT1;" : null;
+                && stub.genericFields.contains(field.getKey()) ? "TT1;" : withElement(field.getValue(), stub.elementTypes.get("F " + field.getKey()));
             writer.visitField(fieldAccess, field.getKey(), field.getValue(), fieldSignature, null).visitEnd();
         }
         if (!isInterface && !isEnum) {
@@ -272,13 +521,25 @@ public final class StubSynthesizer {
             if (!seenParameters.add(name + descriptor.substring(0, descriptor.indexOf(')') + 1))) continue;
             boolean isStatic = entry.getValue() == Opcodes.ACC_STATIC;
             int methodAccess = (entry.getValue() == Opcodes.ACC_PROTECTED ? Opcodes.ACC_PROTECTED : Opcodes.ACC_PUBLIC) | (isStatic ? Opcodes.ACC_STATIC : 0);
-            if (stub.annotation && !isStatic) {
-                writer.visitMethod(methodAccess | Opcodes.ACC_ABSTRACT, name, descriptor, null, null).visitEnd();
+            // Phase 2DJ: a lambda's target needs exactly one abstract method, or javac says "not a functional interface";
+            // only when no input class implements the interface, which an abstract method would force to implement it.
+            boolean functional = isInterface && !stub.implemented && !isStatic && !stub.lambdaMethods.isEmpty() && key.equals(stub.lambdaMethods.iterator().next());
+            if (stub.annotation && !isStatic || functional) {
+                // With one type parameter, the functional method's Object parameters are that parameter (Predicate<T>.apply(T)).
+                String generic = functional && stub.typeParameters == 1 && descriptor.contains("Ljava/lang/Object;")
+                    ? descriptor.substring(0, descriptor.indexOf(')')).replace("Ljava/lang/Object;", "TT1;") + descriptor.substring(descriptor.indexOf(')')) : null;
+                writer.visitMethod(methodAccess | Opcodes.ACC_ABSTRACT, name, descriptor, generic, null).visitEnd();
                 continue;
             }
             var exceptions = stub.throwsBy.getOrDefault(key, Set.of()).toArray(String[]::new);
             String methodSignature = stub.typeParameters == 1 && !isStatic && descriptor.endsWith(")Ljava/lang/Object;") && stub.genericReturns.contains(key)
                 ? descriptor.substring(0, descriptor.length() - "Ljava/lang/Object;".length()) + "TT1;" : null;
+            if (methodSignature == null) {
+                int close = descriptor.indexOf(')');
+                String element = genericIterable && !isStatic && key.equals("iterator()Ljava/util/Iterator;") ? stub.iterableElement : stub.elementTypes.get(key);
+                String returned = withElement(descriptor.substring(close + 1), element);
+                if (returned != null) methodSignature = descriptor.substring(0, close + 1) + returned;
+            }
             var method = writer.visitMethod(methodAccess, name, descriptor, methodSignature, exceptions.length == 0 ? null : exceptions);
             method.visitCode();
             method.visitInsn(Opcodes.ACONST_NULL);
@@ -287,6 +548,14 @@ public final class StubSynthesizer {
         }
         writer.visitEnd();
         return writer.toByteArray();
+    }
+
+    /** Phase 2DJ: the kind flags of a stub, for its class and for every InnerClasses entry naming it. */
+    private static int kindAccess(Stub stub) {
+        if (stub.annotation) return Opcodes.ACC_ANNOTATION | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT;
+        if (enumKind(stub)) return Opcodes.ACC_ENUM | Opcodes.ACC_FINAL;
+        if (interfaceKind(stub)) return Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT;
+        return 0;
     }
 
     /** Whether a neutral default exists: primitives, String, Class, arrays, and stub enums with a known constant. */
@@ -346,6 +615,8 @@ public final class StubSynthesizer {
         final Set<String> methodKeys = new HashSet<>(), fieldNames = new HashSet<>(), instanceMethods = new TreeSet<>(), protectedMethods = new HashSet<>();
         final Map<String,Map<String,String>> annotationElements = new HashMap<>();
         final Map<String,Set<String>> enumConstants = new HashMap<>();
+        final Map<String,List<String>> methodExceptions = new HashMap<>();
+        final List<Call> lambdaTargets = new ArrayList<>();   // functional interface, method name+erased descriptor
         ClassModel() { super(Opcodes.ASM9); }
 
         /** Records the elements of one annotation use; nested annotations and enum values are followed. */
@@ -452,6 +723,7 @@ public final class StubSynthesizer {
             if ((access & (Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE | Opcodes.ACC_SYNTHETIC)) == 0 && !method.startsWith("<")) {
                 instanceMethods.add(method + descriptor);
                 if ((access & Opcodes.ACC_PROTECTED) != 0) protectedMethods.add(method + descriptor);
+                if (exceptions != null) methodExceptions.put(method + descriptor, List.of(exceptions));
             }
             if (exceptions != null) for (String type : exceptions) { throwables.add(type); mentioned.add(type); }
             boolean constructor = method.equals("<init>");
@@ -493,6 +765,9 @@ public final class StubSynthesizer {
                 }
                 @Override public void visitInvokeDynamicInsn(String called, String desc, Handle bootstrap, Object... arguments) {
                     position++; descriptor(desc);
+                    if (bootstrap.getOwner().equals("java/lang/invoke/LambdaMetafactory") && arguments.length > 0 && arguments[0] instanceof Type sam
+                        && Type.getReturnType(desc).getSort() == Type.OBJECT)
+                        lambdaTargets.add(new Call(Type.getReturnType(desc).getInternalName(), called + sam.getDescriptor()));
                     for (var argument : arguments) if (argument instanceof Handle handle && !handle.getOwner().startsWith("[")) {
                         mentioned.add(handle.getOwner());
                         boolean field = handle.getTag() <= Opcodes.H_PUTSTATIC;
