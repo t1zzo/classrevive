@@ -38,8 +38,16 @@ public final class TransformWorker {
                 var result=new dev.classrevive.transforms.skid.SkidfuscatorReverser().apply(current,budget-changes.size());
                 current=result.entries(); changes.addAll(result.changes().subList(0,Math.min(result.changes().size(),budget-changes.size())));
                 reports.add(result.report().toString());
+            } else if(name.equals(dev.classrevive.transforms.radon.RadonReverser.ID)) {
+                var result=new dev.classrevive.transforms.radon.RadonReverser().apply(current,budget-changes.size());
+                current=result.entries(); changes.addAll(result.changes().subList(0,Math.min(result.changes().size(),budget-changes.size())));
+                reports.add(result.report().toString());
             } else if(name.equals(dev.classrevive.transforms.skid.AidsfuscatorReverser.ID)) {
                 var result=new dev.classrevive.transforms.skid.AidsfuscatorReverser().apply(current,budget-changes.size());
+                current=result.entries(); changes.addAll(result.changes().subList(0,Math.min(result.changes().size(),budget-changes.size())));
+                reports.add(result.report().toString());
+            } else if(name.equals(dev.classrevive.transforms.flow.ControlFlowPass.ID)) {
+                var result=new dev.classrevive.transforms.flow.ControlFlowPass().apply(current,budget-changes.size());
                 current=result.entries(); changes.addAll(result.changes().subList(0,Math.min(result.changes().size(),budget-changes.size())));
                 reports.add(result.report().toString());
             }

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Phase 2DK corpus configuration: yGuard's default renaming (naming-scheme small, language-conformity legal), nothing
+     kept but what the sample's own entry points need. ${input}, ${output}, ${log} and ${libraries} are Ant properties set
+     by scripts/benchmarks/obfuscators.py. -->
+<project name="classrevive-yguard-corpus" default="obfuscate">
+  <target name="obfuscate">
+    <taskdef name="yguard" classname="com.yworks.yguard.YGuardTask"/>
+    <yguard>
+      <inoutpair in="${input}" out="${output}"/>
+      <externalclasses><pathelement path="${libraries}"/></externalclasses>
+      <rename logfile="${log}" replaceClassNameStrings="true">
+        <property name="error-checking" value="pedantic"/>
+        <keep>
+          <class classes="none" methods="none" fields="none">
+            <patternset><include name="fixtures.skid.Main"/></patternset>
+          </class>
+          <method name="void main(java.lang.String[])"><patternset><include name="**.*"/></patternset></method>
+        </keep>
+      </rename>
+    </yguard>
+  </target>
+</project>

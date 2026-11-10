@@ -7,7 +7,8 @@ import java.util.regex.Pattern;
 /** Parses an explicit rename mapping file: class rules plus private method/field rules. */
 public final class MappingFile {
     /** Explicit plan; a member rule with a null descriptor applies to every member with that name and kind. */
-    public record Plan(Map<String,String> classes,List<ClassRenamer.MemberRule> members) {
+    public record Plan(Map<String,String> classes,List<ClassRenamer.MemberRule> members,boolean locals) {
+        public Plan(Map<String,String> classes,List<ClassRenamer.MemberRule> members) { this(classes,members,false); }
         public Plan {
             classes=Collections.unmodifiableMap(new TreeMap<>(classes));
             members=List.copyOf(members);
@@ -29,6 +30,7 @@ public final class MappingFile {
         var classes = new TreeMap<String,String>();
         var members = new ArrayList<ClassRenamer.MemberRule>();
         int number = 0;
+        boolean locals = false;
         for (String raw : text.split("\n", -1)) {
             number++;
             String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
@@ -74,10 +76,15 @@ public final class MappingFile {
                     members.add(new ClassRenamer.MemberRule(owner, name, descriptor, field, target));
                     if (members.size() > MAX_MEMBER_RULES) throw new IllegalArgumentException("Too many member rules");
                 }
+                case "option" -> {
+                    // Phase 2DK: `option locals = infer` also names obfuscated local variables and parameters by their type.
+                    if (!rest.equals("locals") || !target.equals("infer")) throw new IllegalArgumentException("Unknown mapping option on line " + number);
+                    locals = true;
+                }
                 default -> throw new IllegalArgumentException("Unknown mapping kind on line " + number);
             }
         }
-        if (classes.isEmpty() && members.isEmpty()) throw new IllegalArgumentException("Mapping file has no entries");
+        if (classes.isEmpty() && members.isEmpty() && !locals) throw new IllegalArgumentException("Mapping file has no entries");
         members.sort(Comparator.comparing(ClassRenamer.MemberRule::owner)
             .thenComparing(ClassRenamer.MemberRule::field)
             .thenComparing(ClassRenamer.MemberRule::name)
@@ -85,7 +92,7 @@ public final class MappingFile {
             .thenComparing(ClassRenamer.MemberRule::target));
         for (int i = 1; i < members.size(); i++)
             if (sameRule(members.get(i - 1), members.get(i))) throw new IllegalArgumentException("Duplicate member mapping");
-        return new Plan(classes, members);
+        return new Plan(classes, members, locals);
     }
 
     private static boolean sameRule(ClassRenamer.MemberRule first, ClassRenamer.MemberRule second) {

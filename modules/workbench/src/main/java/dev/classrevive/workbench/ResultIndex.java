@@ -41,6 +41,43 @@ public final class ResultIndex {
     public record Summary(String inputSha256, String compilation, int errors, int matchedSymbols, int expectedSymbols,
                           boolean structurallyComplete, String selectedCandidate, String behavior) {}
 
+    /** Phase G7: one obfuscation technique the static scan found, as {@code report.json} states it. */
+    public record Technique(String id, String label, int classes, int occurrences) {}
+
+    /** Phase G7: one obfuscator hypothesis with its 0-100 score and the reasons behind it. */
+    public record Hypothesis(String obfuscator, int score, String confidence, List<String> reasons) {
+        public Hypothesis { reasons = List.copyOf(reasons); }
+    }
+
+    /** Phase G7: the {@code obfuscation} section of the report: verdict, techniques and hypotheses (never proof). */
+    public record ReportedObfuscation(String verdict, String suggested, int classes, List<Technique> techniques, List<Hypothesis> hypotheses) {
+        public ReportedObfuscation { techniques = List.copyOf(techniques); hypotheses = List.copyOf(hypotheses); }
+        /** The strongest hypothesis, or null. */
+        public Hypothesis top() { return hypotheses.isEmpty() ? null : hypotheses.getFirst(); }
+    }
+
+    /** Phase G7: the JVM verifier check of the reversed classes; {@code errorType} and {@code failedClass} are null when they linked. */
+    public record LinkCheck(boolean linked, int classes, String errorType, String failedClass) {}
+
+    /** Phase G7: how much of the original's shape the reversal kept ({@code original_signatures}). */
+    public record Signatures(int originalClasses, int reversedClasses, List<String> removedClasses, int originalMethods, int keptMethods,
+                             int originalFields, int keptFields) {
+        public Signatures { removedClasses = List.copyOf(removedClasses); }
+    }
+
+    /**
+     * Phase G7: the {@code deobfuscation} section of the report: which pass ran, its outcome ({@code APPLIED}, {@code REFUSED},
+     * {@code FAILED} or {@code OFF}), the labelled counts the pass recorded and, when applied, what the reversal kept.
+     */
+    public record Reversal(String obfuscator, int score, String pass, String status, String reason, String summary,
+                           Map<String,Integer> counts, int methodsRewritten, LinkCheck link, Signatures signatures) {
+        public Reversal { counts = Collections.unmodifiableMap(new LinkedHashMap<>(counts)); }
+        public boolean applied() { return status.equals("APPLIED"); }
+    }
+
+    /** Phase G7: an intake notice ({@code inventory_notices}): a case collision or a resource left out. */
+    public record Notice(String code, String entry, String message) {}
+
     /** The candidate holding the selected sources. */
     public static final String SELECTION = "selection";
     /** {@code report.json} larger than this is refused, matching the strict JSON reader's own limit. */
@@ -53,10 +90,16 @@ public final class ResultIndex {
     private final Map<String,String> originalNames;
     private final boolean levelsAvailable;
     private final Compiler compiler;
+    private final ReportedObfuscation obfuscation;
+    private final Reversal reversal;
+    private final List<Notice> notices;
     private volatile List<Diagnostic> diagnostics;
+    private volatile Map<String,Integer> editedClasses;
 
     private ResultIndex(Path output, Summary summary, SortedMap<String,ClassEntry> classes, List<EngineEntry> engines,
-                        Map<String,String> originalNames, boolean levelsAvailable, Compiler compiler) {
+                        Map<String,String> originalNames, boolean levelsAvailable, Compiler compiler,
+                        ReportedObfuscation obfuscation, Reversal reversal, List<Notice> notices) {
+        this.obfuscation = obfuscation; this.reversal = reversal; this.notices = notices;
         this.output = output; this.summary = summary; this.classes = classes; this.engines = engines;
         this.originalNames = originalNames; this.levelsAvailable = levelsAvailable; this.compiler = compiler;
     }
@@ -119,13 +162,43 @@ public final class ResultIndex {
                     found.get("javac_at_least") == null ? 0 : integer(found, "javac_at_least"), integer(found, "classes"));
             }
             return new ResultIndex(output, summary, Collections.unmodifiableSortedMap(classes), List.copyOf(engines),
-                Collections.unmodifiableMap(originals), levels, compiler);
+                Collections.unmodifiableMap(originals), levels, compiler,
+                obfuscation(root.get("obfuscation")), reversal(root.get("deobfuscation")), notices(root.get("inventory_notices")));
         } catch (IllegalArgumentException | ClassCastException | NullPointerException malformed) {
             throw new IOException("Not a readable ClassRevive report: " + malformed.getMessage(), malformed);
         }
     }
 
     public Path output() { return output; }
+    /** Phase G7: what the static scan found, or null when the report has no {@code obfuscation} section. */
+    public ReportedObfuscation obfuscation() { return obfuscation; }
+    /** Phase G7: the automatic reversal's outcome, or null when no reversal was considered. */
+    public Reversal reversal() { return reversal; }
+    /** Phase G7: intake notices of the job. */
+    public List<Notice> notices() { return notices; }
+
+    /**
+     * Phase G7: classes the reversal edited, with the number of edits, from {@code deobfuscation/transform.json} (the pass
+     * audit). Empty when there was no reversal, the file is missing or too large, or the pass records counts only.
+     */
+    public Map<String,Integer> editedClasses() {
+        var cached = editedClasses;
+        if (cached != null) return cached;
+        var found = new TreeMap<String,Integer>();
+        try {
+            Path file = output.resolve("deobfuscation").resolve("transform.json");
+            if (reversal != null && Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) && Files.size(file) <= MAX_REPORT_BYTES) {
+                var root = map(Json.decode(Files.readString(file, StandardCharsets.UTF_8)), "transform");
+                if (root.get("changes") instanceof List<?> changes)
+                    for (Object change : changes) if (change instanceof Map<?,?> row && row.get("class") instanceof String name) found.merge(name, 1, Integer::sum);
+            }
+        } catch (IOException | RuntimeException unreadable) {
+            found.clear();
+        }
+        cached = Collections.unmodifiableMap(found);
+        editedClasses = cached;
+        return cached;
+    }
     /** The language and compiler found in the bytecode, or null when the report predates Phase 2CJ. */
     public Compiler compiler() { return compiler; }
 
@@ -193,6 +266,105 @@ public final class ResultIndex {
         for (var level : Level.values()) counts.put(level, 0);
         for (var entry : classes.values()) counts.merge(entry.level(), 1, Integer::sum);
         return Collections.unmodifiableMap(counts);
+    }
+
+    /**
+     * Phase G7: the reversal that the desktop ran as its own step before decompiling ({@link SkidReversal}), read from that
+     * folder's {@code transform.json}: the same fields the job's own {@code deobfuscation} section carries, except what it
+     * compares with the original. Null when the file is missing, too large or not a transform report.
+     */
+    public static Reversal reversalOf(Path folder, String obfuscator, int score) {
+        try {
+            Path file = folder.resolve("transform.json");
+            if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.size(file) > MAX_REPORT_BYTES) return null;
+            var root = map(Json.decode(Files.readString(file, StandardCharsets.UTF_8)), "transform");
+            if (!"static_transform".equals(root.get("kind"))) return null;
+            var counts = new LinkedHashMap<String,Integer>();
+            if (root.get("jar_passes") instanceof String text) {
+                for (String line : text.split("\\R")) {
+                    int colon = line.lastIndexOf(": ");
+                    if (!line.startsWith("  ") || colon < 0) continue;
+                    try { counts.put(line.substring(2, colon), Integer.parseInt(line.substring(colon + 2).trim())); }
+                    catch (NumberFormatException notACount) { /* a list line */ }
+                }
+            }
+            LinkCheck link = null;
+            if (root.get("link_check") instanceof Map<?,?>) {
+                var found = map(root.get("link_check"), "link_check");
+                link = new LinkCheck(Boolean.TRUE.equals(found.get("linked")), found.get("classes") instanceof Long n ? n.intValue() : 0,
+                    found.get("error_type") instanceof String type ? type : null, null);
+            }
+            boolean applied = "OUTPUT_VALIDATED".equals(root.get("status"));
+            int rewritten = counts.getOrDefault("methods changed", root.get("changes") instanceof List<?> changes ? changes.size() : 0);
+            return new Reversal(obfuscator, score, "skidfuscator", applied ? "APPLIED" : "FAILED",
+                applied ? null : String.valueOf(root.getOrDefault("error", root.get("status"))), "", counts, rewritten, link, null);
+        } catch (IOException | RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    // The sections below are evidence for the reader: a malformed one is left out rather than failing the whole report.
+    private static ReportedObfuscation obfuscation(Object value) {
+        try {
+            if (!(value instanceof Map<?,?>)) return null;
+            var data = map(value, "obfuscation");
+            var techniques = new ArrayList<Technique>();
+            if (data.get("techniques") instanceof Map<?,?> found) {
+                for (var entry : found.entrySet()) {
+                    var row = map(entry.getValue(), "technique");
+                    techniques.add(new Technique(String.valueOf(entry.getKey()), string(row, "label"), integer(row, "classes"), integer(row, "occurrences")));
+                }
+            }
+            var hypotheses = new ArrayList<Hypothesis>();
+            for (Object item : list(data.get("hypotheses"), "hypotheses")) {
+                var row = map(item, "hypothesis");
+                var reasons = new ArrayList<String>();
+                for (Object reason : list(row.get("reasons"), "reasons")) reasons.add(String.valueOf(reason));
+                hypotheses.add(new Hypothesis(string(row, "obfuscator"), integer(row, "score"), string(row, "confidence"), reasons));
+            }
+            return new ReportedObfuscation(string(data, "verdict"), string(data, "suggested_obfuscator"), integer(data, "classes"), techniques, hypotheses);
+        } catch (IllegalArgumentException | ClassCastException | NullPointerException malformed) {
+            return null;
+        }
+    }
+
+    private static Reversal reversal(Object value) {
+        try {
+            if (!(value instanceof Map<?,?>)) return null;
+            var data = map(value, "deobfuscation");
+            var counts = new LinkedHashMap<String,Integer>();
+            if (data.get("pass_counts") instanceof Map<?,?> found)
+                for (var entry : found.entrySet())
+                    if (entry.getValue() instanceof Long number && number >= 0 && number <= Integer.MAX_VALUE) counts.put(String.valueOf(entry.getKey()), number.intValue());
+            LinkCheck link = null;
+            if (data.get("link_check") instanceof Map<?,?>) {
+                var found = map(data.get("link_check"), "link_check");
+                link = new LinkCheck(Boolean.TRUE.equals(found.get("linked")), found.get("classes") instanceof Long n ? n.intValue() : 0,
+                    found.get("error_type") instanceof String type ? type : null, found.get("failed_class") instanceof String name ? name : null);
+            }
+            Signatures signatures = null;
+            if (data.get("original_signatures") instanceof Map<?,?>) {
+                var found = map(data.get("original_signatures"), "original_signatures");
+                var removed = new ArrayList<String>();
+                if (found.get("removed_classes") instanceof List<?> names) for (Object name : names) removed.add(String.valueOf(name));
+                signatures = new Signatures(integer(found, "original_classes"), integer(found, "reversed_classes"), removed, integer(found, "original_methods"),
+                    integer(found, "methods_kept"), integer(found, "original_fields"), integer(found, "fields_kept"));
+            }
+            return new Reversal(string(data, "obfuscator"), integer(data, "score"), string(data, "pass"), string(data, "status"),
+                data.get("reason") instanceof String reason ? reason : null, data.get("summary") instanceof String summary ? summary : "",
+                counts, data.get("methods_rewritten") instanceof Long n ? n.intValue() : 0, link, signatures);
+        } catch (IllegalArgumentException | ClassCastException | NullPointerException malformed) {
+            return null;
+        }
+    }
+
+    private static List<Notice> notices(Object value) {
+        var found = new ArrayList<Notice>();
+        if (value instanceof List<?> items)
+            for (Object item : items)
+                if (item instanceof Map<?,?> row && row.get("code") instanceof String code)
+                    found.add(new Notice(code, row.get("entry") instanceof String entry ? entry : "", row.get("message") instanceof String message ? message : ""));
+        return List.copyOf(found);
     }
 
     private Path sources(String candidate) {

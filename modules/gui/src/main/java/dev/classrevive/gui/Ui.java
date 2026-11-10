@@ -75,7 +75,7 @@ final class Ui {
     }
 
     /** A vertical stack for scroll panes: as wide as the viewport, so text wraps instead of running off the right edge. */
-    static final class Column extends JPanel implements Scrollable {
+    static class Column extends JPanel implements Scrollable {
         Column() { setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); }
         /** BoxLayout squeezes left-aligned children when any child (a strut or glue, by default) is centered. */
         @Override protected void addImpl(Component component, Object constraints, int index) {
@@ -105,6 +105,152 @@ final class Ui {
         if (muted) area.putClientProperty(FlatClientProperties.STYLE, "foreground: $Label.disabledForeground");
         area.setAlignmentX(Component.LEFT_ALIGNMENT);
         return area;
+    }
+
+    /** Phase G7: a section heading with its own top gap, so panels space their parts the same way. */
+    static JLabel section(String title) {
+        var label = heading(title, 14f);
+        label.setBorder(padding(0, 0, 8, 0));
+        return label;
+    }
+
+    /** Phase G7: the small upper-case caption above a group of rows (inspector and cards). */
+    static JLabel caption(String title) {
+        var label = muted(title.toUpperCase(Text.locale()));
+        label.setFont(label.getFont().deriveFont(Font.BOLD, label.getFont().getSize2D() - 1.5f));
+        return label;
+    }
+
+    static Color severityColor(ResultInsights.Severity severity) {
+        return switch (severity) {
+            case ERROR -> Theme.level(dev.classrevive.workbench.ResultIndex.Level.UNVERIFIED);
+            case WARNING -> new Color(0xE8A317);
+            case INFO -> Theme.level(dev.classrevive.workbench.ResultIndex.Level.CLOSE);
+        };
+    }
+
+    /** A filled circle with "!" (error, warning) or "i" (information). */
+    static Icon severityIcon(ResultInsights.Severity severity, int size) {
+        return new Icon() {
+            @Override public void paintIcon(Component c, Graphics g, int x, int y) {
+                var g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                var color = severityColor(severity);
+                g2.setColor(color);
+                if (severity == ResultInsights.Severity.WARNING)
+                    g2.fillPolygon(new int[] {x + size / 2, x + size - 1, x + 1}, new int[] {y + 1, y + size - 2, y + size - 2}, 3);
+                else g2.fillOval(x + 1, y + 1, size - 2, size - 2);
+                g2.setColor(Theme.textOn(color));
+                g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, size - 5));
+                var metrics = g2.getFontMetrics();
+                String mark = severity == ResultInsights.Severity.INFO ? "i" : "!";
+                g2.drawString(mark, x + size / 2f - metrics.stringWidth(mark) / 2f, y + size / 2f + (metrics.getAscent() - metrics.getDescent()) / 2f + (severity == ResultInsights.Severity.WARNING ? 2 : 0));
+                g2.dispose();
+            }
+            @Override public int getIconWidth() { return size; }
+            @Override public int getIconHeight() { return size; }
+        };
+    }
+
+    /** A message with an icon, a bold line saying what happened and a muted line saying what to do. */
+    static JComponent notice(ResultInsights.Notice notice) {
+        var card = new Card(severityColor(notice.severity()));
+        card.setLayout(new BorderLayout(10, 0));
+        card.setBorder(padding(9, 16, 9, 12));
+        var icon = new JLabel(severityIcon(notice.severity(), 16));
+        icon.setVerticalAlignment(SwingConstants.TOP);
+        card.add(icon, BorderLayout.WEST);
+        var body = new Column();
+        body.setOpaque(false);
+        var headline = text(visible(notice.text()), false);
+        headline.setFont(headline.getFont().deriveFont(Font.BOLD));
+        body.add(headline);
+        if (!notice.hint().isBlank()) body.add(text(notice.hint(), true));
+        card.add(body, BorderLayout.CENTER);
+        return card;
+    }
+
+    /** A rounded panel with the theme's card color, a hairline border and an optional accent stripe on the left. */
+    static class Card extends JPanel {
+        private final Color accent;
+        Card(Color accent) { this.accent = accent; setOpaque(false); setBorder(padding(12, 14, 12, 14)); }
+        @Override public Dimension getMaximumSize() { return new Dimension(Integer.MAX_VALUE, getPreferredSize().height); }
+        @Override protected void paintComponent(Graphics g) {
+            var g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(Theme.card());
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
+            g2.setColor(Theme.line());
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
+            if (accent != null) { g2.setColor(accent); g2.fillRoundRect(0, 10, 4, Math.max(8, getHeight() - 20), 4, 4); }
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
+
+    /** Values as one proportional bar in the given colors; a zero total paints the empty track. */
+    static final class Bar extends JComponent {
+        private final int[] values;
+        private final Color[] colors;
+        Bar(int[] values, Color[] colors, String tooltip) {
+            this.values = values.clone(); this.colors = colors.clone();
+            setPreferredSize(new Dimension(240, 12));
+            setMinimumSize(new Dimension(60, 12));
+            setToolTipText(tooltip);
+        }
+        @Override public Dimension getMaximumSize() { return new Dimension(Integer.MAX_VALUE, getPreferredSize().height); }
+        @Override protected void paintComponent(Graphics g) {
+            var g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int total = java.util.Arrays.stream(values).sum();
+            var clip = new java.awt.geom.RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
+            g2.setColor(Theme.line());
+            g2.fill(clip);
+            if (total > 0) {
+                g2.clip(clip);
+                double x = 0;
+                for (int i = 0; i < values.length; i++) {
+                    if (values[i] == 0) continue;
+                    double width = getWidth() * (double) values[i] / total;
+                    g2.setColor(colors[i]);
+                    g2.fill(new java.awt.geom.Rectangle2D.Double(x, 0, Math.max(2, width), getHeight()));
+                    x += width;
+                }
+            }
+            g2.dispose();
+        }
+    }
+
+    /** Two columns of label and right-aligned value, as wide as the parent allows up to {@code maxWidth}. */
+    static JPanel rows(int maxWidth) {
+        var panel = new JPanel(new GridBagLayout()) {
+            @Override public Dimension getMaximumSize() { return new Dimension(maxWidth, getPreferredSize().height); }
+        };
+        panel.setOpaque(false);
+        return panel;
+    }
+
+    /** Adds one label/value line to a panel made by {@link #rows}; {@code icon} may be null. */
+    static void row(JPanel rows, String label, String value, Icon icon) {
+        var constraints = new GridBagConstraints();
+        constraints.gridy = rows.getComponentCount() / 2;
+        constraints.insets = new Insets(2, 0, 2, 0);
+        constraints.anchor = GridBagConstraints.WEST;
+        constraints.weightx = 1;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        var name = new JLabel(label);
+        name.setIcon(icon);
+        name.setIconTextGap(8);
+        rows.add(name, constraints);
+        constraints = (GridBagConstraints) constraints.clone();
+        constraints.weightx = 0;
+        constraints.fill = GridBagConstraints.NONE;
+        constraints.anchor = GridBagConstraints.EAST;
+        constraints.insets = new Insets(2, 16, 2, 0);
+        var number = new JLabel(value);
+        number.setFont(number.getFont().deriveFont(Font.BOLD));
+        rows.add(number, constraints);
     }
 
     static Border padding(int top, int left, int bottom, int right) { return BorderFactory.createEmptyBorder(top, left, bottom, right); }

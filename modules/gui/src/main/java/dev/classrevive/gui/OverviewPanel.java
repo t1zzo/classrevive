@@ -15,7 +15,7 @@ final class OverviewPanel extends JPanel {
         var index = workspace.result();
         var summary = index.summary();
         var content = new Ui.Column();
-        content.setBorder(Ui.padding(24, 28, 24, 28));
+        content.setBorder(Ui.padding(24, 32, 28, 32));
 
         var title = Ui.heading(Ui.visible(workspace.displayName()), 22f);
         content.add(left(title));
@@ -60,16 +60,24 @@ final class OverviewPanel extends JPanel {
             }
         });
         content.add(tiles);
-        content.add(Box.createVerticalStrut(22));
+        content.add(Box.createVerticalStrut(18));
 
-        content.add(left(Ui.heading(Text.t("overview.confidence"), 14f)));
-        content.add(Box.createVerticalStrut(8));
+        // Phase G7: what needs attention first, then what the deobfuscation did, then the confidence breakdown.
+        var insights = workspace.insights();
+        if (!insights.hasDeobfuscation()) {
+            for (var notice : insights.notices()) { content.add(Ui.notice(notice)); content.add(Box.createVerticalStrut(6)); }
+            if (!insights.notices().isEmpty()) content.add(Box.createVerticalStrut(12));
+        } else {
+            content.add(new DeobfuscationPanel(insights));
+            content.add(Box.createVerticalStrut(22));
+        }
+
+        content.add(Ui.section(Text.t("overview.confidence")));
         var counts = index.levelCounts();
         if (counts.isEmpty()) content.add(left(Ui.muted(Text.t("overview.noLevels"))));
         else {
-            var bar = new LevelBar(new EnumMap<>(counts));
+            var bar = levelBar(new EnumMap<>(counts));
             bar.setAlignmentX(LEFT_ALIGNMENT);
-            bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 14));
             content.add(bar);
             content.add(Box.createVerticalStrut(10));
             var legend = new JPanel(new GridLayout(0, 1, 0, 4));
@@ -85,13 +93,16 @@ final class OverviewPanel extends JPanel {
         }
         content.add(Box.createVerticalStrut(22));
 
-        content.add(left(Ui.heading(Text.t("overview.engines"), 14f)));
-        content.add(Box.createVerticalStrut(8));
-        var engines = new JPanel(new GridLayout(0, 3, 16, 4));
+        content.add(Ui.section(Text.t("overview.engines")));
+        var engines = new JPanel(new GridLayout(0, 3, 16, 6));
         engines.setOpaque(false);
         for (var engine : index.engines()) {
             engines.add(new JLabel("<html><b>" + Ui.escape(engine.id()) + "</b> " + Ui.escape(engine.version()) + "</html>"));
-            engines.add(new JLabel(Text.t("engine." + engine.status(), engine.status())));
+            boolean ok = engine.status().equals("OUTPUT_PRODUCED");
+            var status = new JLabel(Text.t("engine." + engine.status(), engine.status()));
+            status.setIcon(ok ? Icons.dot(Theme.level(ResultIndex.Level.EXACT), 10) : Ui.severityIcon(ResultInsights.Severity.WARNING, 12));
+            status.setIconTextGap(6);
+            engines.add(status);
             engines.add(Ui.muted(Text.t("overview.engines.files", engine.sourceFiles())));
         }
         engines.setAlignmentX(LEFT_ALIGNMENT);
@@ -117,6 +128,8 @@ final class OverviewPanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         add(scroll, BorderLayout.CENTER);
+        // Text areas lay out late and can pull the view down to a section; the overview always opens at its top.
+        SwingUtilities.invokeLater(() -> scroll.getViewport().setViewPosition(new Point(0, 0)));
     }
 
     private static JComponent left(JComponent component) { component.setAlignmentX(LEFT_ALIGNMENT); return component; }
@@ -134,67 +147,28 @@ final class OverviewPanel extends JPanel {
 
     static String percent(long part, long whole) { return String.format(Text.locale(), "%.1f%%", part * 100.0 / whole); }
 
-    /** A rounded card with a label, a big value, a note and an optional accent stripe. */
-    static final class Tile extends JPanel {
-        private final Color accent;
+    /** A card with a label, a big value and a note, and an optional accent stripe. */
+    static final class Tile extends Ui.Card {
         Tile(String label, String value, String note, Color accent) {
-            super(new BorderLayout(0, 2));
-            this.accent = accent;
-            setOpaque(false);
-            setBorder(Ui.padding(12, 14, 12, 14));
-            var top = Ui.muted(label.toUpperCase(Text.locale()));
-            top.setFont(top.getFont().deriveFont(Font.BOLD, top.getFont().getSize2D() - 1.5f));
-            add(top, BorderLayout.NORTH);
+            super(accent);
+            setLayout(new BorderLayout(0, 2));
+            setBorder(Ui.padding(12, 16, 12, 14));
+            add(Ui.caption(label), BorderLayout.NORTH);
             var big = new JLabel(Ui.visible(value));
             big.setFont(big.getFont().deriveFont(Font.BOLD, 20f));
             add(big, BorderLayout.CENTER);
-            var small = Ui.muted(note);
-            add(small, BorderLayout.SOUTH);
-        }
-        @Override protected void paintComponent(Graphics g) {
-            var g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(Theme.card());
-            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
-            g2.setColor(Theme.line());
-            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 14, 14);
-            if (accent != null) { g2.setColor(accent); g2.fillRoundRect(0, 10, 4, getHeight() - 20, 4, 4); }
-            g2.dispose();
-            super.paintComponent(g);
+            add(Ui.muted(note), BorderLayout.SOUTH);
         }
     }
 
     /** Classes per level as one proportional bar. */
-    static final class LevelBar extends JComponent {
-        private final Map<ResultIndex.Level,Integer> counts;
-        LevelBar(Map<ResultIndex.Level,Integer> counts) {
-            this.counts = counts;
-            setPreferredSize(new Dimension(240, 12));
-            setMinimumSize(new Dimension(60, 12));
-            var tip = new StringJoiner(", ");
-            counts.forEach((level, count) -> tip.add(Text.t("level." + level.name()) + " " + count));
-            setToolTipText(tip.toString());
-        }
-        @Override protected void paintComponent(Graphics g) {
-            var g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            int total = counts.values().stream().mapToInt(Integer::intValue).sum();
-            var clip = new java.awt.geom.RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
-            g2.setColor(Theme.line());
-            g2.fill(clip);
-            if (total > 0) {
-                g2.clip(clip);
-                double x = 0;
-                for (var level : ResultIndex.Level.values()) {
-                    int count = counts.getOrDefault(level, 0);
-                    if (count == 0) continue;
-                    double width = getWidth() * (double) count / total;
-                    g2.setColor(Theme.level(level));
-                    g2.fill(new java.awt.geom.Rectangle2D.Double(x, 0, Math.max(2, width), getHeight()));
-                    x += width;
-                }
-            }
-            g2.dispose();
-        }
+    static JComponent levelBar(Map<ResultIndex.Level,Integer> counts) {
+        var tip = new StringJoiner(", ");
+        counts.forEach((level, count) -> tip.add(Text.t("level." + level.name()) + " " + count));
+        var levels = ResultIndex.Level.values();
+        var values = new int[levels.length];
+        var colors = new Color[levels.length];
+        for (int i = 0; i < levels.length; i++) { values[i] = counts.getOrDefault(levels[i], 0); colors[i] = Theme.level(levels[i]); }
+        return new Ui.Bar(values, colors, tip.toString());
     }
 }

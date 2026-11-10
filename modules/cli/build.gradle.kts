@@ -10,6 +10,10 @@ dependencies {
     implementation(project(":workbench"))
     // Phase G3: `classrevive gui` and the classrevive-gui launcher start the desktop application.
     implementation(project(":gui"))
+    // Phase 2DK: the inference corpus test reads the ProGuard fixtures with the transforms API directly.
+    testImplementation(project(":transforms"))
+    // Phase 2DK: the yGuard rename test renames its fixture with ASM's remapper.
+    testImplementation("org.ow2.asm:asm-commons:9.11.1")
 }
 // Phase 2CW: dex2jar's jars, for the distribution (lib/dex2jar) and for tests that convert an APK.
 val dexTools: Configuration by configurations.creating { isCanBeConsumed = false }
@@ -38,6 +42,10 @@ val obfuscatedFixtures = rootProject.layout.projectDirectory.dir("benchmarks/obf
 tasks.test {
     inputs.files(obfuscatedFixtures.asFileTree.matching { include("*.jar", "*.mapping.txt") }).withPropertyName("obfuscatedFixtures")
     systemProperty("classrevive.obfuscatedFixtures", obfuscatedFixtures.asFile.absolutePath)
+    // Phase 2DK: the name-inference sources run through ProGuard (benchmarks/obfuscated/proguard-names).
+    val nameFixtures = rootProject.layout.projectDirectory.dir("benchmarks/obfuscated/proguard-names")
+    inputs.files(nameFixtures.asFileTree.matching { include("*.jar", "*.mapping.txt") }).withPropertyName("nameFixtures")
+    systemProperty("classrevive.nameFixtures", nameFixtures.asFile.absolutePath)
 }
 application {
     mainClass.set("dev.classrevive.cli.Main")

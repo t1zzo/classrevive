@@ -39,6 +39,13 @@ class SkidfuscatorFlowTest {
                 assertFalse(onEdt(() -> window.banner().offersReversal()));
                 assertTrue(onEdt(() -> window.banner().isVisible()), "the banner says the classes were reversed");
                 assertTrue(onEdt(() -> window.tabs().getComponentAt(0) instanceof OverviewPanel));
+                // Phase G7: the overview says what was identified and reverted, from the reversal's own transform.json.
+                var insights = reversed.insights();
+                assertTrue(insights.hasDeobfuscation());
+                assertTrue(insights.reversal().applied(), "reversal applied");
+                assertEquals("Skidfuscator", insights.obfuscation().top().obfuscator());
+                assertTrue(insights.reverted().stream().anyMatch(count -> count.label().equals("strings decrypted") && count.value() > 0), insights.reverted().toString());
+                assertTrue(onEdt(() -> hasPanel(window.tabs().getComponentAt(0))), "the Deobfuscation section is in the overview");
                 // The reversal folder sits beside the result in the workspace directory.
                 try (var folders = Files.list(settings.workspaceDirectory())) {
                     assertTrue(folders.anyMatch(folder -> folder.getFileName().toString().startsWith("skid-app-skidfuscator-reversal")));
@@ -49,6 +56,12 @@ class SkidfuscatorFlowTest {
         } finally {
             System.clearProperty("classrevive.home");
         }
+    }
+
+    private static boolean hasPanel(java.awt.Component component) {
+        if (component instanceof DeobfuscationPanel) return true;
+        if (component instanceof java.awt.Container container) for (var child : container.getComponents()) if (hasPanel(child)) return true;
+        return false;
     }
 
     private static <T> T onEdt(Callable<T> call) throws Exception {

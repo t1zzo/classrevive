@@ -37,6 +37,8 @@ public final class ObfuscatorClassifier {
         nativeLayer(profile, hypotheses);
         skidfuscator(profile, hypotheses);
         aidsfuscator(profile, hypotheses);
+        radon(profile, hypotheses);
+        yguard(profile, hypotheses);
         hypotheses.sort(Comparator.comparingInt(Hypothesis::score).reversed().thenComparing(Hypothesis::obfuscator));
         String verdict = !hypotheses.isEmpty() ? "SUGGESTED" : profile.techniques().isEmpty() ? "NONE" : "UNKNOWN";
         return new Result(verdict, hypotheses);
@@ -77,6 +79,7 @@ public final class ObfuscatorClassifier {
             + p.metric("exceptions.rethrow_handlers") + " handlers in " + p.metric("exceptions.rethrow_classes") + " classes");
         rule.add(rule.score > 0 && (p.has(Technique.SHORT_NAMES) || p.has(Technique.CASE_COLLISIONS)), 10, "short or case-colliding names");
         rule.subtract(p.metric("marker.allatori") > 0 || p.metric("marker.stringer_stacktrace") > 0, 30, "another obfuscator's marker present");
+        rule.subtract(radonEvidence(p), 40, "Radon's injected decoders or invokedynamic shapes");
         rule.into(out);
     }
 
@@ -98,6 +101,7 @@ public final class ObfuscatorClassifier {
         rule.add(p.metric("marker.stringer_stacktrace") > 0, 50, "string decryptors that read the stack trace: " + p.metric("marker.stringer_stacktrace"));
         rule.add(p.metric("strings.decryptor(Ljava/lang/Object;)") > 0, 20, "static (Object)String decryptors: " + p.metric("strings.decryptor(Ljava/lang/Object;)"));
         rule.add(rule.score > 0 && p.has(Technique.HIDDEN_CALLS), 15, "invokedynamic with a non-JDK bootstrap");
+        rule.subtract(radonEvidence(p), 50, "the stack-trace decryptor is Radon's (Object, int)String with a Map and long[] cache");
         rule.into(out);
     }
 
@@ -119,6 +123,7 @@ public final class ObfuscatorClassifier {
         rule.subtract(p.has(Technique.STRING_ENCRYPTION), 30, "string encryption is not a ProGuard/R8 feature");
         rule.subtract(p.has(Technique.HIDDEN_CALLS), 30, "invokedynamic call hiding is not a ProGuard/R8 feature");
         rule.subtract(p.has(Technique.NON_IDENTIFIER_NAMES), 15, "names that are no Java identifiers (ProGuard/R8 emit identifiers by default)");
+        rule.subtract(p.metric("names.non_ascii_short_members") >= 10, 20, "short names outside ASCII (yGuard's default naming; ProGuard/R8 use a-z)");
         rule.into(out);
     }
 
@@ -153,6 +158,51 @@ public final class ObfuscatorClassifier {
         rule.add(rule.score > 0 && p.metric("skid.exception_gotos") > 0, 10, "gotos disguised as throw new X() caught by a handler that pops it: " + p.metric("skid.exception_gotos"));
         rule.add(p.metric("marker.skidfuscator_sdk") > 0, 25, "Skidfuscator runtime class sdk/SDK (" + p.metric("skid.sdk_calls") + " calls)");
         rule.add(p.metric("marker.ahegao") > 0, 25, "nothing_to_see_here String[] marker field: " + p.metric("marker.ahegao") + " classes");
+        rule.into(out);
+    }
+
+    /** Phase 2DK: evidence only Radon's injected classes and call shapes give. */
+    static boolean radonEvidence(ObfuscationProfile p) {
+        return p.metric("radon.string_sites") > 0 || p.metric("radon.number_sites") > 0 || p.metric("radon.indy_heavy_sites") > 0
+            || p.metric("radon.indy_fast_sites") > 0 || p.metric("radon.bad_annotations") > 0;
+    }
+
+    /**
+     * Phase 2DK: Radon 2 (ItzSomebody/radon, GPL-3.0): its string decryptor ({@code (Object, int)String} in a class with a
+     * {@code Map} and a {@code long[]}, called as {@code ldc; int; invokestatic}), its number decoder (a {@code Thread}
+     * subclass), its heavy ({@code a b d e f g}, {@code (..., String, long)}) and fast (encrypted name) invokedynamic sites,
+     * flow predicates ({@code static final} fields nothing writes, read into locals), fake catch blocks, mutilated null
+     * checks, hidden members and annotations of type {@code @}. Rules in docs/radon-yguard.md.
+     */
+    private static void radon(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("Radon");
+        rule.add(p.metric("radon.string_sites") > 0, 40, "string decryptor (Object, int)String with a Map and long[] cache, called as ldc; int; invokestatic: "
+            + p.metric("radon.string_sites") + " sites");
+        rule.add(p.metric("radon.number_sites") > 0, 35, "numbers decoded through a Thread subclass's (Object, int)Object: " + p.metric("radon.number_sites") + " sites");
+        rule.add(p.metric("radon.indy_heavy_sites") > 0, 40, "invokedynamic a/b/d/e/f/g with (..., String, long) arguments and an (Object, Object, Object) bootstrap: "
+            + p.metric("radon.indy_heavy_sites") + " sites");
+        rule.add(p.metric("radon.indy_fast_sites") > 0, 40, "invokedynamic names that decrypt to owner, name, descriptor and kind: " + p.metric("radon.indy_fast_sites") + " sites");
+        rule.add(p.metric("radon.predicate_reads") >= 3, 25, "static final predicates nothing writes, read into locals: " + p.metric("radon.predicate_fields")
+            + " fields, " + p.metric("radon.predicate_reads") + " methods");
+        rule.add(p.metric("radon.fake_catch_sites") > 0, 20, "catch blocks of an empty exception class calling a method it lacks: " + p.metric("radon.fake_catch_sites"));
+        rule.add(p.metric("radon.null_check_traps") >= 3, 15, "null checks written as an Object call caught as NullPointerException: " + p.metric("radon.null_check_traps"));
+        rule.add(p.metric("radon.bad_annotations") > 0, 45, "annotations of type @: " + p.metric("radon.bad_annotations"));
+        rule.add(rule.score > 0 && p.metric("radon.hidden_methods") >= 3, 10, "methods flagged bridge that are no bridges: " + p.metric("radon.hidden_methods"));
+        rule.into(out);
+    }
+
+    /**
+     * Phase 2DK: yGuard (yWorks, MIT): renaming only; its default naming draws one- or two-character names from every
+     * character a Java identifier may hold, so most are outside ASCII; its "best"/"mix" schemes use Java keywords.
+     */
+    private static void yguard(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("yGuard (renaming)");
+        int members = p.metric("names.non_ascii_short_members");
+        rule.add(members >= 10, 50, "member names of one or two characters outside ASCII: " + members);
+        rule.add(p.metric("names.non_ascii_short_classes") >= 3, 20, "class names of one or two characters outside ASCII: " + p.metric("names.non_ascii_short_classes"));
+        rule.add(rule.score > 0 && p.has(Technique.SHORT_NAMES), 10, "short names");
+        rule.subtract(p.has(Technique.STRING_ENCRYPTION), 30, "string encryption is not a yGuard feature");
+        rule.subtract(p.has(Technique.HIDDEN_CALLS), 30, "invokedynamic call hiding is not a yGuard feature");
         rule.into(out);
     }
 

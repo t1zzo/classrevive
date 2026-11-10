@@ -50,6 +50,8 @@ public final class Workspace {
     private String label;
     private ObfuscationCheck.Detection obfuscation;
     private volatile String reversedFrom;
+    private volatile java.nio.file.Path reversalFolder;
+    private volatile ObfuscationCheck.Detection reversalDetection;
 
     private Workspace(Path input, Path inspected, InputIdentifier.Identification identification, Inventory inventory) {
         this.input = input;
@@ -253,5 +255,23 @@ public final class Workspace {
     /** Phase G5: the original input's name when these classes are the Skidfuscator reversal of it, else null. */
     public String reversedFrom() { return reversedFrom; }
     void reversedFrom(String original) { reversedFrom = original; }
+
+    /** Phase G7: the folder and detection of the reversal this workspace came from, kept to show what it did. */
+    void reversal(java.nio.file.Path folder, ObfuscationCheck.Detection detected) { reversalFolder = folder; reversalDetection = detected; }
+
+    /**
+     * Phase G7: the deobfuscation view of this result: the job's own report sections, or, for a result decompiled from the
+     * reversal the window ran as its own step, that reversal's {@code transform.json} and the original's detection.
+     */
+    public ResultInsights insights() {
+        if (result == null) return null;
+        var reversal = result.reversal();
+        var found = result.obfuscation();
+        if (reversal == null && reversalFolder != null && reversalDetection != null && reversalDetection.top() != null) {
+            reversal = ResultIndex.reversalOf(reversalFolder, reversalDetection.top().obfuscator(), reversalDetection.top().score());
+            found = ResultInsights.reported(reversalDetection);
+        }
+        return new ResultInsights(result, reversal, found);
+    }
     public boolean decompiled() { return result != null; }
 }

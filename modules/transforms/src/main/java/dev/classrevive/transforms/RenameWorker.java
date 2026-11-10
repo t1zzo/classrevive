@@ -49,7 +49,7 @@ public final class RenameWorker {
         }
         var result = plan == null
             ? new ClassRenamer().rename(classes, ClassRenamer.plan(classes.keySet()), true)
-            : new ClassRenamer().rename(classes, plan.classes(), plan.members(), true);
+            : new ClassRenamer().rename(classes, plan.classes(), plan.members(), true, plan.locals());
         var outputs = new TreeMap<String, byte[]>();
         for (var entry : resources.entrySet()) {
             String name = entry.getKey(); byte[] bytes = entry.getValue();

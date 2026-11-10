@@ -24,6 +24,9 @@ final class ActivityPanel extends JPanel {
     private final JTextArea log = new JTextArea();
     private final javax.swing.Timer clock;
     private Instant started;
+    private final Map<JobListener.Stage,Instant> stageStarted = new EnumMap<>(JobListener.Stage.class);
+    private final Map<JobListener.Stage,Duration> stageTook = new EnumMap<>(JobListener.Stage.class);
+    private JobListener.Stage current;
 
     ActivityPanel(Action cancelAction) {
         super(new BorderLayout());
@@ -39,6 +42,7 @@ final class ActivityPanel extends JPanel {
         top.add(left, BorderLayout.WEST);
         progress.setIndeterminate(false);
         progress.setVisible(false);
+        progress.setMaximum(JobListener.Stage.values().length * 10);
         progress.setPreferredSize(new Dimension(180, 6));
         var right = new JPanel(new FlowLayout(FlowLayout.RIGHT, Ui.GAP, 0));
         right.setOpaque(false);
@@ -50,7 +54,7 @@ final class ActivityPanel extends JPanel {
         add(top, BorderLayout.NORTH);
 
         var steps = new JPanel(new GridLayout(0, 1, 0, 2));
-        steps.setBorder(Ui.padding(4, 14, 8, 12));
+        steps.setBorder(Ui.padding(6, 14, 8, 12));
         for (var stage : JobListener.Stage.values()) {
             var label = new JLabel(Text.t("stage." + stage.name()));
             stages.put(stage, label);
@@ -59,7 +63,7 @@ final class ActivityPanel extends JPanel {
         }
         var stepsBox = new JPanel(new BorderLayout());
         stepsBox.add(steps, BorderLayout.NORTH);
-        stepsBox.setPreferredSize(new Dimension(300, 150));
+        stepsBox.setPreferredSize(new Dimension(380, 150));
         log.setEditable(false);
         log.setFont(Theme.codeFont(12));
         log.setBorder(Ui.padding(6, 8, 6, 8));
@@ -73,6 +77,8 @@ final class ActivityPanel extends JPanel {
 
     void start(String input, List<String> engineIds) {
         started = Instant.now();
+        stageStarted.clear(); stageTook.clear(); current = null;
+        progress.setValue(0);
         for (var stage : JobListener.Stage.values()) states.put(stage, State.PENDING);
         engines.removeAll();
         engineChips.clear();
@@ -83,7 +89,7 @@ final class ActivityPanel extends JPanel {
         }
         engines.revalidate();
         headline.setText(Text.t("activity.running", Ui.visible(input)));
-        progress.setIndeterminate(true);
+        progress.setIndeterminate(false);
         progress.setVisible(true);
         cancel.setVisible(true);
         cancel.setEnabled(true);
@@ -107,11 +113,15 @@ final class ActivityPanel extends JPanel {
     }
 
     void stage(JobListener.Stage stage) {
+        closeCurrent();
         for (var entry : states.entrySet()) {
             if (entry.getValue() == State.RUNNING) entry.setValue(State.DONE);
             if (entry.getKey().ordinal() < stage.ordinal() && entry.getValue() == State.PENDING) entry.setValue(State.SKIPPED);
         }
         states.put(stage, State.RUNNING);
+        current = stage;
+        stageStarted.put(stage, Instant.now());
+        progress.setValue(stage.ordinal() * 10 + 5);
         paintStages();
         append(Text.t("stage." + stage.name()));
     }
@@ -143,6 +153,8 @@ final class ActivityPanel extends JPanel {
 
     /** {@code outcome} is the headline; {@code success} marks every remaining stage done or skipped. */
     void finish(String outcome, boolean success) {
+        closeCurrent();
+        progress.setValue(success ? progress.getMaximum() : progress.getValue());
         clock.stop();
         tick();
         for (var entry : states.entrySet()) {
@@ -162,20 +174,39 @@ final class ActivityPanel extends JPanel {
         log.setCaretPosition(log.getDocument().getLength());
     }
 
+    /** The stage that was running ends now: its time is kept to show next to its name. */
+    private void closeCurrent() {
+        if (current != null && stageStarted.containsKey(current)) stageTook.put(current, Duration.between(stageStarted.get(current), Instant.now()));
+        current = null;
+    }
+
     private void tick() {
         if (started == null) return;
         long seconds = Duration.between(started, Instant.now()).toSeconds();
-        elapsed.setText(String.format("%d:%02d", seconds / 60, seconds % 60));
+        String clockText = String.format("%d:%02d", seconds / 60, seconds % 60);
+        elapsed.setText(current == null ? clockText : Text.t("activity.step", current.ordinal() + 1, JobListener.Stage.values().length, clockText));
+    }
+
+    /** "1.2 s" or "2 min 05 s"; empty before the stage ran. */
+    static String took(Duration duration) {
+        if (duration == null) return "";
+        long millis = duration.toMillis();
+        if (millis < 100) return "<0.1 s";
+        if (millis < 60_000) return String.format(Locale.ROOT, "%.1f s", millis / 1000.0);
+        return String.format(Locale.ROOT, "%d min %02d s", millis / 60_000, millis / 1000 % 60);
     }
 
     private void paintStages() {
         for (var stage : JobListener.Stage.values()) {
             var label = stages.get(stage);
+            String time = took(stageTook.get(stage));
+            label.setText(time.isEmpty() ? Text.t("stage." + stage.name())
+                : "<html>" + Ui.escape(Text.t("stage." + stage.name())) + " &nbsp;<span style='color:gray'>" + time.replace("<", "&lt;") + "</span></html>");
             switch (states.get(stage)) {
                 case PENDING -> { label.setIcon(ring(Theme.muted(), false)); label.setForeground(Theme.muted()); }
                 case RUNNING -> { label.setIcon(ring(Theme.ACCENT, true)); label.setForeground(Theme.foreground()); }
                 case DONE -> { label.setIcon(check()); label.setForeground(Theme.foreground()); }
-                case SKIPPED -> { label.setIcon(ring(Theme.line(), false)); label.setForeground(Theme.muted()); }
+                case SKIPPED -> { label.setIcon(ring(Theme.line(), false)); label.setForeground(Theme.muted()); label.setText(Text.t("stage." + stage.name()) + "  ·  " + Text.t("activity.stage.skipped")); }
             }
         }
     }

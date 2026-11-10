@@ -5,7 +5,7 @@ import java.util.*;
 
 /** Phase 2CV: a short overview, and per-command help with options, defaults, examples and exit codes. */
 final class Help {
-    static final String VERSION = "0.1.0";
+    static final String VERSION = "0.2.0";
 
     /** {@code summary}: one line for the overview; {@code text}: the full help of the command. */
     record Entry(String group, String summary, String text) {}
@@ -40,6 +40,10 @@ final class Help {
               --engine-cache <folder>     Reuse engine outputs keyed by input and engine bytes.
               --deobfuscate auto|off      Undo a recognized obfuscator (Skidfuscator, Aidsfuscator) before decompiling,
                                           when the diagnosis is HIGH confidence. Default: auto.
+              --infer-names off|high|medium|low
+                                          Guess readable names for short (obfuscated) classes, private fields/methods and
+                                          locals, always marked inferred (inferred-names/). Keeps guesses down to the given
+                                          confidence; true means low. Default: off.
               %s
                                           Static triage of bundled native libraries with an installed Ghidra.
 
@@ -77,15 +81,18 @@ final class Help {
 
             Passes, in the order given: integer-constants (default), integer-unary, integer-branches, string-length,
             string-char-at, string-decryptor; skidfuscator (first in the list) reverses Skidfuscator 2.1.0,
-            aidsfuscator (first in the list) reverses Aidsfuscator 2.10.0.
+            aidsfuscator (first in the list) reverses Aidsfuscator 2.10.0, radon (first in the list) reverses Radon 2;
+            control-flow (whole jar, after them) decides opaque predicates, unflattens dispatchers and removes
+            throw-gotos and dead code, independent of the obfuscator.
             The output is checked by the JVM verifier; nothing is executed.
             %s"""));
         COMMANDS.put("rename", new Entry("tools", "Rename classes and private members (readable aliases or a mapping file)", """
-            Usage: classrevive rename <input> -o <new-folder> [--mapping <file> | --proguard-mapping <mapping.txt>] [-t <seconds>]
+            Usage: classrevive rename <input> -o <new-folder> [--mapping <file> | --proguard-mapping <mapping.txt> | --yguard-log <yguardlog.xml>] [-t <seconds>]
 
             Without a mapping, short class names get deterministic readable aliases. --mapping takes rules
             "class a=b", "method owner#name[(desc)]=new", "field owner#name[:desc]=new"; --proguard-mapping restores the
-            names a ProGuard or R8 mapping records where that is safe, and reports what it skipped.
+            names a ProGuard or R8 mapping records where that is safe, and reports what it skipped; --yguard-log does the
+            same with the <map> section of a yGuard log (plain or gzipped).
             %s"""));
         COMMANDS.put("benchmark", new Entry("tools", "Measure each engine and the combined selection on a corpus", """
             Usage: classrevive benchmark <corpus-folder> -o <new-folder> [-e <list>] [-t <seconds>] [--engine-cache <folder>] [--resume true]

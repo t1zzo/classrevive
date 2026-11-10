@@ -23,6 +23,18 @@ public final class DecompilationJob {
     /** Phase 2DD: static reversal of an obfuscator the diagnosis names with HIGH confidence; on unless turned off. */
     private boolean deobfuscate = true;
     public DecompilationJob withDeobfuscation(boolean enabled) { this.deobfuscate = enabled; return this; }
+    /**
+     * Phase 2DK: guessed names for obfuscated classes, private fields and methods (and local variables), always marked as inferred
+     * and listed under inferred-names/. Null (the default) leaves every name as the input has it; otherwise the lowest confidence kept.
+     */
+    private dev.classrevive.transforms.NameInference.Confidence inferNames;
+    public DecompilationJob withInferNames(dev.classrevive.transforms.NameInference.Confidence minimum) { this.inferNames = minimum; return this; }
+    /** {@code off}/null, or the lowest confidence to keep: {@code high}, {@code medium} or {@code low} ({@code true} means {@code low}). */
+    public DecompilationJob withInferNamesLevel(String level) {
+        if (level == null || level.equals("off") || level.equals("false")) return withInferNames((dev.classrevive.transforms.NameInference.Confidence) null);
+        if (level.equals("true")) level = "low";
+        return withInferNames(dev.classrevive.transforms.NameInference.Confidence.valueOf(level.toUpperCase(Locale.ROOT)));
+    }
     /** Phase G1: stage and engine progress; {@link JobListener#NONE} unless set. */
     private JobListener listener = JobListener.NONE;
     public DecompilationJob withListener(JobListener listener) { this.listener = Objects.requireNonNull(listener); return this; }
@@ -112,11 +124,17 @@ public final class DecompilationJob {
         var caseRenames = caseRenames(output);
         var memberRenames = memberRenames(output);
         var keptMembers = keptMembers(output);
+        // Phase 2DK: the inferred names share the rename pass (and the mapping) with the portable ones but are reported on their own.
+        var inferredNames = InferredNames.read(output);
+        var portableClasses = InferredNames.without(caseRenames, InferredNames.classes(inferredNames));
+        var portableMembers = InferredNames.without(memberRenames, InferredNames.members(inferredNames));
         Path selectionReport = output.resolve("selection").resolve("selection.txt");
-        if (!caseRenames.isEmpty() && Files.isRegularFile(selectionReport, LinkOption.NOFOLLOW_LINKS))
-            Files.writeString(selectionReport, "\n" + caseRenameSummary(caseRenames), StandardOpenOption.APPEND);
-        if ((!memberRenames.isEmpty() || !keptMembers.isEmpty()) && Files.isRegularFile(selectionReport, LinkOption.NOFOLLOW_LINKS))
-            Files.writeString(selectionReport, "\n" + memberRenameSummary(memberRenames, keptMembers), StandardOpenOption.APPEND);
+        if (!portableClasses.isEmpty() && Files.isRegularFile(selectionReport, LinkOption.NOFOLLOW_LINKS))
+            Files.writeString(selectionReport, "\n" + caseRenameSummary(portableClasses), StandardOpenOption.APPEND);
+        if ((!portableMembers.isEmpty() || !keptMembers.isEmpty()) && Files.isRegularFile(selectionReport, LinkOption.NOFOLLOW_LINKS))
+            Files.writeString(selectionReport, "\n" + memberRenameSummary(portableMembers, keptMembers), StandardOpenOption.APPEND);
+        if (inferredNames != null && Files.isRegularFile(selectionReport, LinkOption.NOFOLLOW_LINKS))
+            Files.writeString(selectionReport, "\n" + InferredNames.text(inferredNames), StandardOpenOption.APPEND);
         // Phase 2BP: a candidate that does not compile as a whole is still measured file by file against the originals.
         dev.classrevive.verification.PartialRoundTrip.Result perFile = null;
         Path selected = output.resolve("selection").resolve("sources");
@@ -175,8 +193,9 @@ public final class DecompilationJob {
             EvidenceReport.portableNames(caseRenames, memberRenames, keptMembers, originalInventory.notices()), originalInventory.notices(),
             obfuscation == null ? null : ObfuscationSummary.json(obfuscation.profile(), obfuscation.result()), EmbeddedLibraries.json(libraries),
             dev.classrevive.bytecode.CompilerFingerprint.json(compiler), stubJson(stubResult),
-            deobfuscation == null ? null : AutoDeobfuscation.json(deobfuscation));
-        String libraryText = dev.classrevive.bytecode.CompilerFingerprint.text(compiler) + EmbeddedLibraries.text(libraries) + stubText(stubResult);
+            deobfuscation == null ? null : AutoDeobfuscation.json(deobfuscation), InferredNames.json(inferredNames));
+        String libraryText = dev.classrevive.bytecode.CompilerFingerprint.text(compiler) + EmbeddedLibraries.text(libraries) + stubText(stubResult)
+            + InferredNames.text(inferredNames);
         if (!libraryText.isEmpty()) Files.writeString(output.resolve("report.txt"), libraryText, StandardOpenOption.APPEND);
         // Phase 2CF: the same evidence as a confidence map, for people.
         int bodies = dev.classrevive.verification.MethodRoundTrip.countBodies(normalizedClasses);
@@ -285,8 +304,34 @@ public final class DecompilationJob {
                 members.kept().forEach((key, reason) -> kept.append(memberKey(key)).append('\t').append(reason).append('\n'));
                 Files.writeString(output.resolve(CASE_DIRECTORY).resolve(KEPT_MEMBERS), kept, StandardOpenOption.CREATE_NEW);
             }
-            if (caseRenames.isEmpty() && members.renamed().isEmpty()) writeClasses(classSource, normalized, classes, jar);
-            else disambiguate(classSource, output.resolve(CASE_DIRECTORY), normalized, classes, jar, caseRenames, members, timeout);
+            // Phase 2DK (opt-in): readable guesses for the short names, applied by the same rename pass as the portable names.
+            dev.classrevive.transforms.NameInference.Result inferred = null;
+            if (inferNames != null) {
+                inferred = dev.classrevive.transforms.NameInference.infer(classBytes, caseRenames, members.renamed().keySet(), true, inferNames,
+                    namedOutsideTheBytecode(snapshot, output, jar, names));
+                InferredNames.write(output, inferred, inferNames);
+            }
+            inferring = inferred != null && !inferred.isEmpty();
+            if (caseRenames.isEmpty() && members.renamed().isEmpty() && !inferring) writeClasses(classSource, normalized, classes, jar);
+            else {
+                try {
+                    disambiguate(classSource, output.resolve(CASE_DIRECTORY), normalized, classes, jar, caseRenames, members, inferring ? inferred : null, timeout);
+                } catch (IOException failed) {
+                    if (!inferring) throw failed;
+                    // The guesses are never worth a failed job: they are dropped and the job continues with the portable names only.
+                    deleteTree(output.resolve(CASE_DIRECTORY)); deleteTree(output.resolve(InferredNames.DIRECTORY)); Files.deleteIfExists(normalized);
+                    inferring = false;
+                    InferredNames.writeFailed(output, inferNames, String.valueOf(failed.getMessage()));
+                    if (!members.kept().isEmpty()) {
+                        Files.createDirectories(output.resolve(CASE_DIRECTORY));
+                        var kept = new StringBuilder("# Phase 2BW: member names that are no Java identifiers, left unchanged (member<TAB>reason)\n");
+                        members.kept().forEach((key, reason) -> kept.append(memberKey(key)).append('\t').append(reason).append('\n'));
+                        Files.writeString(output.resolve(CASE_DIRECTORY).resolve(KEPT_MEMBERS), kept, StandardOpenOption.CREATE_NEW);
+                    }
+                    if (caseRenames.isEmpty() && members.renamed().isEmpty()) writeClasses(classSource, normalized, classes, jar);
+                    else disambiguate(classSource, output.resolve(CASE_DIRECTORY), normalized, classes, jar, caseRenames, members, null, timeout);
+                }
+            }
             // Phase 2CM: ZKM's opaque-predicate flags that are proved constant are folded before any engine reads the classes.
             String flagSummary = foldZkmFlags(output, normalized, timeout);
             // Phase 2CX: an engine that reads Dalvik bytecode (JADX) gets the original dex files of an Android input, as long
@@ -295,7 +340,7 @@ public final class DecompilationJob {
             // those members, which the engine names its own way. An open-source Android app had 4 such fields; JADX on the
             // converted jar instead of the dex left 826 methods undecompiled instead of 524, in 394 s instead of 44 s.
             Path dalvik = output.resolve(InputIdentifier.DIRECTORY).resolve(InputIdentifier.DALVIK);
-            boolean dalvikAsIs = Files.isRegularFile(dalvik, LinkOption.NOFOLLOW_LINKS) && caseRenames.isEmpty()
+            boolean dalvikAsIs = Files.isRegularFile(dalvik, LinkOption.NOFOLLOW_LINKS) && caseRenames.isEmpty() && !inferring
                 && !AutoDeobfuscation.usable(deobfuscation) && !Files.exists(output.resolve(DEOBFUSCATION_DIRECTORY).resolve("classes-before-flags.jar"));
             var tasks = new ArrayList<Future<EngineResult>>();
             var results = new ArrayList<EngineResult>();
@@ -519,7 +564,7 @@ public final class DecompilationJob {
      */
     private static void disambiguate(Path snapshot, Path directory, Path normalized, List<Inventory.Entry> classes, boolean jar,
                                      Map<String,String> renames, dev.classrevive.transforms.ClassRenamer.MemberPlan members,
-                                     Duration timeout) throws IOException {
+                                     dev.classrevive.transforms.NameInference.Result inferred, Duration timeout) throws IOException {
         Files.createDirectories(directory);
         Path colliding = directory.resolve("classes-original.jar");
         writeClasses(snapshot, colliding, classes, jar);
@@ -528,6 +573,7 @@ public final class DecompilationJob {
         if (!members.renamed().isEmpty())
             mapping.append("# Phase 2BW: private members renamed because their names are no Java identifiers or are reserved words (original owners)\n");
         members.renamed().forEach((key, to) -> mapping.append(key.field() ? "field " : "method ").append(memberKey(key)).append(" = ").append(to).append('\n'));
+        if (inferred != null) mapping.append(inferred.mapping());
         Path mappingFile = directory.resolve("mapping.txt");
         Files.writeString(mappingFile, mapping, StandardOpenOption.CREATE_NEW);
         var worker = new ProcessRunner().runRename(new dev.classrevive.transforms.RenameEngine(mappingFile), colliding,
@@ -538,7 +584,10 @@ public final class DecompilationJob {
         var result = new InventoryReader().inspect(renamed, Limits.defaults());
         if (!result.successful() || !result.notices().isEmpty()) throw new IOException("Portable-name inventory failed");
         var expected = new TreeSet<String>();
-        for (var entry : classes) expected.add(renames.getOrDefault(entry.classInfo().name(), entry.classInfo().name()));
+        for (var entry : classes) {
+            String name = entry.classInfo().name();
+            expected.add(renames.getOrDefault(name, inferred == null ? name : inferred.classes().getOrDefault(name, name)));
+        }
         var actual = new TreeSet<String>();
         for (var entry : result.entries()) {
             if (entry.classInfo() == null || !entry.name().equals(entry.classInfo().name() + ".class"))
@@ -549,6 +598,54 @@ public final class DecompilationJob {
         try (var in = Files.newInputStream(renamed); var out = Files.newOutputStream(normalized, StandardOpenOption.CREATE_NEW)) {
             copyBounded(in, out, Limits.defaults().maxInputBytes());
         }
+    }
+
+    /** Phase 2DK: whether the classes the engines read carry inferred names. */
+    private boolean inferring;
+
+    private static void deleteTree(Path directory) throws IOException {
+        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) return;
+        try (var walk = Files.walk(directory)) { for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path); }
+    }
+
+    /**
+     * Phase 2DK: classes a resource names (a manifest's Main-Class, META-INF/services, plugin.yml, any text entry that spells the
+     * class name), and with them their outer classes. Inference leaves them alone: nothing rewrites those resources. For an input
+     * converted from Android, every class is protected because the manifest (decoded elsewhere) names components.
+     */
+    private static Set<String> namedOutsideTheBytecode(Path snapshot, Path output, boolean jar, Set<String> names) throws IOException {
+        if (Files.isRegularFile(output.resolve(InputIdentifier.DIRECTORY).resolve(InputIdentifier.DALVIK), LinkOption.NOFOLLOW_LINKS)) return Set.copyOf(names);
+        var named = new TreeSet<String>();
+        if (!jar) return named;
+        var tokens = new HashSet<String>();
+        try (var zip = new ZipFile(snapshot.toFile())) {
+            var entries = zip.entries(); int visited = 0; long total = 0;
+            while (entries.hasMoreElements() && visited++ < 100_000) {
+                var entry = entries.nextElement();
+                if (entry.isDirectory() || entry.getName().toLowerCase(Locale.ROOT).endsWith(".class") || entry.getSize() > 1_048_576) continue;
+                total += Math.max(0, entry.getSize());
+                if (total > 64L * 1024 * 1024) break;
+                try (var stream = zip.getInputStream(entry)) {
+                    String text = new String(stream.readNBytes(1_048_576), StandardCharsets.ISO_8859_1);
+                    var token = new StringBuilder();
+                    for (int i = 0; i <= text.length(); i++) {
+                        char c = i < text.length() ? text.charAt(i) : ' ';
+                        if (Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '.' || c == '/') token.append(c);
+                        else if (token.length() > 0) {
+                            String value = token.toString(); token.setLength(0);
+                            while (value.endsWith(".")) value = value.substring(0, value.length() - 1);
+                            tokens.add(value);
+                        }
+                    }
+                }
+            }
+        }
+        for (String name : names) if (tokens.contains(name) || tokens.contains(name.replace('/', '.'))) {
+            named.add(name);
+            int dollar = name.indexOf('$', name.lastIndexOf('/') + 1);
+            if (dollar > 0) named.add(name.substring(0, dollar));
+        }
+        return named;
     }
 
     /** The Phase 2BV mapping recorded by {@link #run}, or an empty map when every class name was already portable. */

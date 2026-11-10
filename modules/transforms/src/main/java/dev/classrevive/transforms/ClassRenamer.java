@@ -37,6 +37,10 @@ public final class ClassRenamer {
     public Result rename(Map<String,byte[]> classes,Map<String,String> requested) { return rename(classes,requested,List.of(),false); }
     public Result rename(Map<String,byte[]> classes,Map<String,String> requested,boolean rewriteReflectionStrings) { return rename(classes,requested,List.of(),rewriteReflectionStrings); }
     public Result rename(Map<String,byte[]> classes,Map<String,String> requested,List<MemberRule> memberRules,boolean rewriteReflectionStrings) {
+        return rename(classes,requested,memberRules,rewriteReflectionStrings,false);
+    }
+    /** {@code inferLocals} (Phase 2DK): also gives obfuscated local variable and parameter names, read from the LocalVariableTable, a name from their type. */
+    public Result rename(Map<String,byte[]> classes,Map<String,String> requested,List<MemberRule> memberRules,boolean rewriteReflectionStrings,boolean inferLocals) {
         if(classes.isEmpty() || classes.size()>20000) throw new IllegalArgumentException("Require 1..20000 classes");
         if(memberRules.size()>50000) throw new IllegalArgumentException("Member rule limit exceeded");
         var mapping=new TreeMap<>(requested); var input=new TreeMap<String,byte[]>(); long total=0;
@@ -69,13 +73,14 @@ public final class ClassRenamer {
             throw new IllegalArgumentException("Output class name collision");
         var result=new TreeMap<String,byte[]>(); var remapper=new Renamer(mapping,expanded); int reflectionRewrites=0;
         for(var entry:input.entrySet()) {
-            if(mapping.isEmpty() && expanded.isEmpty()) { result.put(entry.getKey(),entry.getValue()); continue; }
+            if(mapping.isEmpty() && expanded.isEmpty() && !inferLocals) { result.put(entry.getKey(),entry.getValue()); continue; }
             // Descriptors never declare the private members of other classes, so they pass through when no class moves (Phase 2BW).
             if(special(entry.getKey()) && mapping.isEmpty()) { result.put(entry.getKey(),entry.getValue()); continue; }
             if(special(entry.getKey())) throw new IllegalArgumentException("Descriptor classes require archive-aware renaming");
             var reader=new ClassReader(entry.getValue()); var node=new ClassNode(); reader.accept(node,0);
             if(IntegerConstantPass.hasOpaqueAttributes(node)) throw new IllegalArgumentException("Opaque attributes prevent safe metadata rewriting");
             if(rewriteReflectionStrings) reflectionRewrites+=rewriteReflectionStrings(node,mapping);
+            if(inferLocals) LocalNames.rename(node,name->mapping.getOrDefault(name,name));
             var writer=new ClassWriter(reader,0); node.accept(new ClassRemapper(writer,remapper));
             byte[] bytes=writer.toByteArray();
             if(!readable(bytes)) {
@@ -84,6 +89,7 @@ public final class ClassRenamer {
                 // frames (the decompilers do not need them) rather than failing the whole job.
                 var plain=new ClassNode(); new ClassReader(entry.getValue()).accept(plain,ClassReader.SKIP_FRAMES);
                 if(rewriteReflectionStrings) rewriteReflectionStrings(plain,mapping);
+                if(inferLocals) LocalNames.rename(plain,name->mapping.getOrDefault(name,name));
                 var unframed=new ClassWriter(ClassWriter.COMPUTE_MAXS); plain.accept(new ClassRemapper(unframed,remapper));
                 bytes=unframed.toByteArray();
             }
