@@ -87,6 +87,12 @@ class AutoDeobfuscationTest {
         assertEquals(Optional.empty(), AutoDeobfuscation.candidate(new ObfuscatorClassifier.Result("SUGGESTED", List.of(zkm, medium))));
         assertEquals("aidsfuscator", AutoDeobfuscation.PASSES.get(AutoDeobfuscation.candidate(
             new ObfuscatorClassifier.Result("SUGGESTED", List.of(aids))).orElseThrow().obfuscator()));
+        // Phase 2DK
+        var radon = new ObfuscatorClassifier.Hypothesis("Radon", 100, "HIGH", List.of());
+        assertEquals("radon", AutoDeobfuscation.PASSES.get(AutoDeobfuscation.candidate(
+            new ObfuscatorClassifier.Result("SUGGESTED", List.of(radon))).orElseThrow().obfuscator()));
+        var yguard = new ObfuscatorClassifier.Hypothesis("yGuard (renaming)", 80, "HIGH", List.of());
+        assertEquals(Optional.empty(), AutoDeobfuscation.candidate(new ObfuscatorClassifier.Result("SUGGESTED", List.of(yguard))));
         assertEquals(Optional.empty(), AutoDeobfuscation.candidate(new ObfuscatorClassifier.Result("NONE", List.of())));
     }
 

@@ -326,9 +326,10 @@ final class MainWindow extends JFrame {
                     var reversed = reverseSkidfuscator(target, request);
                     if (reversed != null) {
                         // The result is the reversed program: reopen it, so the tree and bytecode show the reversed classes.
-                        var output = new DecompileService().decompile(reversed, listener).output();
+                        var output = new DecompileService().decompile(reversed.request(), listener).output();
                         var reopened = Workspace.openResult(output);
                         reopened.reversedFrom(target.displayName());
+                        reopened.reversal(reversed.folder(), target.obfuscation());
                         SwingUtilities.invokeLater(() -> reversedAndDecompiled(target, reopened));
                         return;
                     }
@@ -351,7 +352,9 @@ final class MainWindow extends JFrame {
      * Phase G5: runs the Skidfuscator reversal into its own new folder beside the result and returns the request for the
      * reversed jar, or null (the original is then decompiled) when the reversal fails or the JVM verifier refuses a class.
      */
-    private DecompileRequest reverseSkidfuscator(Workspace target, DecompileRequest request) throws InterruptedException {
+    private record Reversed(DecompileRequest request, Path folder) {}
+
+    private Reversed reverseSkidfuscator(Workspace target, DecompileRequest request) throws InterruptedException {
         SwingUtilities.invokeLater(() -> activity.note(Text.t("skid.running")));
         try {
             String base = target.displayName().replaceAll("(?i)\\.(jar|class)$", "");
@@ -363,8 +366,8 @@ final class MainWindow extends JFrame {
                 return null;
             }
             SwingUtilities.invokeLater(() -> activity.note(Text.t("skid.done", result.linkedClasses(), result.output())));
-            return new DecompileRequest(result.jar(), request.output(), request.engines(), request.timeout(), request.dependencies(),
-                request.engineCache(), request.stubs());
+            return new Reversed(new DecompileRequest(result.jar(), request.output(), request.engines(), request.timeout(), request.dependencies(),
+                request.engineCache(), request.stubs()), folder);
         } catch (IOException | RuntimeException failure) {
             String reason = String.valueOf(failure.getMessage());
             SwingUtilities.invokeLater(() -> activity.note(Text.t("skid.fallback", reason)));

@@ -86,6 +86,68 @@ tasks.register("verifyObfuscatedFixtures") {
                 throw GradleException("${committed.asFile.name} differs from a fresh ProGuard run")
     }
 }
+// Phase 2DK: the same ProGuard run over the name-inference sources (benchmarks/obfuscated/proguard-names/README.md).
+val namesDir = layout.projectDirectory.dir("benchmarks/obfuscated/proguard-names")
+val compileNamesSource = tasks.register<JavaCompile>("compileObfuscatedSource_names") {
+    source(fileTree(namesDir.dir("src")) { include("**/*.java") })
+    classpath = files()
+    destinationDirectory.set(layout.buildDirectory.dir("obfuscated/names/classes"))
+    options.release.set(8)
+    sourceCompatibility = "8"
+    targetCompatibility = "8"
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(listOf("-proc:none", "-Xlint:-options", "-g"))
+}
+val nameVariants = listOf("names-debug", "names-default").map { variant ->
+    val raw = layout.buildDirectory.dir("obfuscated/names/$variant")
+    val run = tasks.register<JavaExec>("proguardFixture_$variant") {
+        classpath = proguardTool
+        mainClass.set("proguard.ProGuard")
+        inputs.file(namesDir.file("$variant.pro"))
+        inputs.dir(compileNamesSource.flatMap { it.destinationDirectory })
+        outputs.dir(raw)
+        doFirst { delete(raw); mkdir(raw) }
+        argumentProviders.add(CommandLineArgumentProvider {
+            val out = raw.get().asFile
+            listOf("-include", namesDir.file("$variant.pro").asFile.path,
+                "-injars", compileNamesSource.get().destinationDirectory.get().asFile.path,
+                "-outjars", out.resolve("classes").path,
+                "-libraryjars", javaLauncher.get().metadata.installationPath.file("jmods/java.base.jmod").asFile.path + "(!**.jar;!module-info.class)",
+                "-printmapping", out.resolve("mapping.txt").path)
+        })
+    }
+    val pack = tasks.register<Zip>("packProguardFixture_$variant") {
+        from(run.map { it.outputs.files.singleFile.resolve("classes") })
+        destinationDirectory.set(layout.buildDirectory.dir("obfuscated/names/packed"))
+        archiveFileName.set("$variant.jar")
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
+    }
+    Triple(variant, run, pack)
+}
+tasks.register<Copy>("regenerateNameFixtures") {
+    description = "Re-runs ProGuard over the name-inference sources and overwrites the committed jars and mappings."
+    for ((variant, run, pack) in nameVariants) {
+        from(pack)
+        from(run) { include("mapping.txt"); rename { "$variant.mapping.txt" } }
+    }
+    into(namesDir)
+    doLast { nameVariants.forEach { (variant) -> namesDir.file("$variant.mapping.txt").asFile.let { it.writeText(it.readText().replace("\r\n", "\n")) } } }
+}
+tasks.register("verifyNameFixtures") {
+    description = "Fails when a fresh ProGuard run no longer reproduces the committed name-inference jars and mappings."
+    val pairs = nameVariants.flatMap { (variant, run, pack) ->
+        dependsOn(run, pack)
+        listOf(namesDir.file("$variant.jar") to pack.flatMap { it.archiveFile },
+            namesDir.file("$variant.mapping.txt") to layout.buildDirectory.file("obfuscated/names/$variant/mapping.txt"))
+    }
+    doLast {
+        fun bytes(file: File) = if (file.name.endsWith(".txt")) file.readText().replace("\r\n", "\n").toByteArray() else file.readBytes()
+        for ((committed, generated) in pairs)
+            if (!bytes(committed.asFile).contentEquals(bytes(generated.get().asFile)))
+                throw GradleException("${committed.asFile.name} differs from a fresh ProGuard run")
+    }
+}
 // Phase 2CW: an Android fixture made by our own code. benchmarks/android/src is compiled for Java 8 against compile-only
 // stand-ins of three framework classes (stubs/, never dexed), dx (Apache-2.0, bundled in dex2jar's d2j-external and run only
 // as a build tool) turns demo/notes into classes.dex and demo/util into classes2.dex, and both are packed with a placeholder

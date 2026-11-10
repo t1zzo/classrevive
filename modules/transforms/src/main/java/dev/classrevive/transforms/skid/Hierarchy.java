@@ -12,12 +12,12 @@ import java.util.*;
  * Phase 2CN: common super classes for frame computation, from the jar's own class headers and the JDK's (platform loader,
  * loaded without initialization; it cannot see the jar's classes). Unknown types fall back to {@code java/lang/Object}.
  */
-final class Hierarchy {
+public final class Hierarchy {
     private record Header(String superName, List<String> interfaces, boolean isInterface) {}
     private final Map<String,ClassNode> classes;
     private final Map<String,Optional<Header>> cache = new HashMap<>();
 
-    Hierarchy(Map<String,ClassNode> classes) { this.classes = classes; }
+    public Hierarchy(Map<String,ClassNode> classes) { this.classes = classes; }
 
     /**
      * Phase 2DC: frame computation budget. ASM's default (100 million merge operations per class) is too small for a large
@@ -26,7 +26,7 @@ final class Hierarchy {
     static final long OPERATIONS = 1_000_000_000L;
     static final int MEMORY = 64 << 20;
 
-    ClassWriter writer(int flags) {
+    public ClassWriter writer(int flags) {
         var writer = new ClassWriter(flags) {
             @Override protected String getCommonSuperClass(String first, String second) { return common(first, second); }
             @Override protected ClassLoader getClassLoader() { return ClassLoader.getPlatformClassLoader(); }
@@ -36,7 +36,7 @@ final class Hierarchy {
     }
 
     /** Phase 2DC: why a rewritten class could not be written (its original bytes are kept), for the report. */
-    static String failure(String internal, RuntimeException error) {
+    public static String failure(String internal, RuntimeException error) {
         String why = error instanceof LimitExceededException ? "frame computation over its budget (" + error.getMessage() + ")"
             : error instanceof MethodTooLargeException ? "a method grew past 64 KiB of code"
             : error.getClass().getSimpleName() + (error.getMessage() == null ? "" : ": " + error.getMessage());

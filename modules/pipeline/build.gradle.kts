@@ -63,3 +63,9 @@ tasks.withType<Test>().configureEach {
     inputs.files(skidfuscatorFixtures.asFileTree.matching { include("*.jar") }).withPropertyName("skidfuscatorFixtures")
     systemProperty("classrevive.skidfuscatorFixtures", skidfuscatorFixtures.asFile.absolutePath)
 }
+// Phase 2DK: ProGuard output of the name-inference sources (benchmarks/obfuscated/proguard-names).
+val nameFixtures = rootProject.layout.projectDirectory.dir("benchmarks/obfuscated/proguard-names")
+tasks.withType<Test>().configureEach {
+    inputs.files(nameFixtures.asFileTree.matching { include("*.jar") }).withPropertyName("nameFixtures")
+    systemProperty("classrevive.nameFixtures", nameFixtures.asFile.absolutePath)
+}

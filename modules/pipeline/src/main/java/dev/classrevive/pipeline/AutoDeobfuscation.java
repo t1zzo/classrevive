@@ -23,7 +23,9 @@ public final class AutoDeobfuscation {
     /** Classifier obfuscator name (as {@link ObfuscatorClassifier} reports it) to the whole-jar pass that reverses it. */
     static final Map<String,String> PASSES = Map.of(
         "Skidfuscator", dev.classrevive.transforms.skid.SkidfuscatorReverser.ID,
-        "Aidsfuscator", dev.classrevive.transforms.skid.AidsfuscatorReverser.ID);
+        "Aidsfuscator", dev.classrevive.transforms.skid.AidsfuscatorReverser.ID,
+        // Phase 2DK
+        "Radon", dev.classrevive.transforms.radon.RadonReverser.ID);
     /** Verifier errors that mean the bytecode itself is invalid, as opposed to a class it refers to being absent. */
     static final Set<String> BYTECODE_ERRORS = Set.of("java.lang.VerifyError", "java.lang.ClassFormatError",
         "java.lang.UnsupportedClassVersionError", "java.lang.ClassCircularityError", "java.lang.IncompatibleClassChangeError",

@@ -4,11 +4,11 @@ import org.objectweb.asm.Opcodes;
 import java.util.Deque;
 
 /** Phase 2CN: Java semantics of the primitive instructions, shared by the evaluator and the abstract interpreter. */
-final class Interpret implements Opcodes {
+public final class Interpret implements Opcodes {
     static final Object REFUSED = new Object();
     private Interpret() {}
 
-    static boolean compare(int op, int a, int b) {
+    public static boolean compare(int op, int a, int b) {
         return switch (op) {
             case IFEQ, IF_ICMPEQ -> a == b; case IFNE, IF_ICMPNE -> a != b;
             case IFLT, IF_ICMPLT -> a < b; case IFGE, IF_ICMPGE -> a >= b;
@@ -18,7 +18,7 @@ final class Interpret implements Opcodes {
     }
 
     /** Int binary arithmetic; null when the instruction would throw (division by zero). */
-    static Integer binaryInt(int op, int a, int b) {
+    public static Integer binaryInt(int op, int a, int b) {
         return switch (op) {
             case IADD -> a + b; case ISUB -> a - b; case IMUL -> a * b;
             case IDIV -> b == 0 ? null : a / b; case IREM -> b == 0 ? null : a % b;
@@ -28,7 +28,7 @@ final class Interpret implements Opcodes {
         };
     }
 
-    static Integer unaryInt(int op, int v) {
+    public static Integer unaryInt(int op, int v) {
         return switch (op) {
             case INEG -> -v; case I2B -> (int) (byte) v; case I2C -> (int) (char) v; case I2S -> (int) (short) v;
             default -> null;

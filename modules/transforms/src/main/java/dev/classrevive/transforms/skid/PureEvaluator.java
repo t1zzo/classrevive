@@ -16,17 +16,17 @@ import java.util.*;
  * <p>A short allowlist of JDK methods whose bodies use lookup tables or intrinsics ({@code Character.toLowerCase(int)},
  * ...) is evaluated by calling the JDK's own method: that runs JDK code on constants, never target code.
  */
-final class PureEvaluator implements Opcodes {
+public final class PureEvaluator implements Opcodes {
     static final int MAX_STEPS = 20_000;
     private static final int MAX_DEPTH = 8;
     private final Map<String,ClassNode> jar;
     private final Map<String,Optional<ClassNode>> jdk = new HashMap<>();
     private final Map<String,Boolean> refused = new HashMap<>();
 
-    PureEvaluator(Map<String,ClassNode> jar) { this.jar = jar; }
+    public PureEvaluator(Map<String,ClassNode> jar) { this.jar = jar; }
 
     /** True when the descriptor has only primitive parameters (at least one) and a primitive, non-void result. */
-    static boolean primitiveDescriptor(String desc) {
+    public static boolean primitiveDescriptor(String desc) {
         var args = Type.getArgumentTypes(desc);
         if (args.length == 0) return false;
         for (var arg : args) if (arg.getSort() < Type.BOOLEAN || arg.getSort() > Type.DOUBLE) return false;
@@ -35,7 +35,7 @@ final class PureEvaluator implements Opcodes {
     }
 
     /** Evaluates {@code owner.name desc} on boxed primitive arguments (int-like ones as Integer); empty when refused. */
-    Optional<Object> evaluate(String owner, String name, String desc, Object[] args) {
+    public Optional<Object> evaluate(String owner, String name, String desc, Object[] args) {
         if (!primitiveDescriptor(desc)) return Optional.empty();
         String key = owner + "." + name + desc;
         if (refused.containsKey(key)) return Optional.ofNullable(Allowlist.call(owner, name, desc, args));
@@ -64,7 +64,7 @@ final class PureEvaluator implements Opcodes {
      * an allowlisted JDK class, or a static method whose body only does primitive arithmetic, branches and calls to such
      * methods. A call is dropped only when its arguments are literals it was evaluated on without error.
      */
-    boolean pureBody(String owner, String name, String desc) {
+    public boolean pureBody(String owner, String name, String desc) {
         if (Allowlist.CLASSES.contains(owner)) return primitiveDescriptor(desc);
         String key = owner + "." + name + desc;
         Boolean known = pure.get(key);

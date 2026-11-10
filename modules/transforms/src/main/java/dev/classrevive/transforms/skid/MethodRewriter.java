@@ -218,32 +218,7 @@ final class MethodRewriter implements Opcodes {
 
     /** A switch without the cases whose label no input reaches; null when every case stays. */
     private static AbstractInsnNode prune(AbstractInsnNode insn, Set<Integer> targets, Map<AbstractInsnNode,Integer> index) {
-        var keys = new ArrayList<Integer>(); var labels = new ArrayList<LabelNode>(); LabelNode dflt;
-        if (insn instanceof TableSwitchInsnNode table) {
-            for (int k = 0; k < table.labels.size(); k++) { keys.add(table.min + k); labels.add(table.labels.get(k)); }
-            dflt = table.dflt;
-        } else {
-            var lookup = (LookupSwitchInsnNode) insn;
-            keys.addAll(lookup.keys); labels.addAll(lookup.labels); dflt = lookup.dflt;
-        }
-        var keptKeys = new ArrayList<Integer>(); var keptLabels = new ArrayList<LabelNode>();
-        for (int k = 0; k < keys.size(); k++) {
-            if (labels.get(k) == dflt || !targets.contains(index.get(labels.get(k)))) continue;
-            keptKeys.add(keys.get(k)); keptLabels.add(labels.get(k));
-        }
-        if (!targets.contains(index.get(dflt)) && !keptLabels.isEmpty()) {
-            // The default is never taken: the last kept case becomes the default.
-            dflt = keptLabels.removeLast(); keptKeys.removeLast();
-        }
-        int before = keys.size();
-        if (keptKeys.size() == before) return null;
-        int[] sortedKeys = keptKeys.stream().mapToInt(Integer::intValue).toArray();
-        Integer[] order = new Integer[sortedKeys.length];
-        for (int k = 0; k < order.length; k++) order[k] = k;
-        Arrays.sort(order, Comparator.comparingInt(k -> sortedKeys[k]));
-        int[] finalKeys = new int[order.length]; LabelNode[] finalLabels = new LabelNode[order.length];
-        for (int k = 0; k < order.length; k++) { finalKeys[k] = sortedKeys[order[k]]; finalLabels[k] = keptLabels.get(order[k]); }
-        return new LookupSwitchInsnNode(dflt, finalKeys, finalLabels);
+        return dev.classrevive.transforms.flow.Cfg.prune(insn, targets, index);
     }
 
     /** The jump replacing {@code new X; dup; invokespecial X.<init>()V; athrow}, or null when the pattern does not hold. */
@@ -279,17 +254,7 @@ final class MethodRewriter implements Opcodes {
         return changed;
     }
 
-    static boolean canThrow(AbstractInsnNode insn) {
-        int op = insn.getOpcode();
-        if (op < 0) return false;
-        if (op >= NOP && op <= ALOAD || op >= ISTORE && op <= ASTORE || op >= POP && op <= SWAP) return false;
-        if (op >= IADD && op <= DREM) return op == IDIV || op == IREM || op == LDIV || op == LREM;
-        if (op >= INEG && op <= DCMPG) return false;
-        if (op >= IFEQ && op <= LOOKUPSWITCH) return false;
-        if (op >= IRETURN && op <= RETURN) return false;
-        if (op == IFNULL || op == IFNONNULL || op == IINC) return false;
-        return true;
-    }
+    static boolean canThrow(AbstractInsnNode insn) { return dev.classrevive.transforms.flow.Cfg.canThrow(insn); }
 
     private static boolean foldable(AbstractInsnNode insn) {
         int op = insn.getOpcode();
@@ -467,24 +432,10 @@ final class MethodRewriter implements Opcodes {
     }
 
     /** First real instruction at or after a label. */
-    private static AbstractInsnNode start(LabelNode label) {
-        AbstractInsnNode node = label;
-        while (node != null && node.getOpcode() < 0) node = node.getNext();
-        return node;
-    }
+    private static AbstractInsnNode start(LabelNode label) { return dev.classrevive.transforms.flow.Cfg.start(label); }
 
     /** Follows a chain of unconditional jumps from a label; a cycle leaves the label as it is. */
-    private static LabelNode resolve(LabelNode label) {
-        var seen = new HashSet<LabelNode>();
-        seen.add(label);
-        LabelNode current = label;
-        while (true) {
-            var first = start(current);
-            if (!(first instanceof JumpInsnNode jump) || jump.getOpcode() != GOTO) return current;
-            if (!seen.add(jump.label)) return label;
-            current = jump.label;
-        }
-    }
+    private static LabelNode resolve(LabelNode label) { return dev.classrevive.transforms.flow.Cfg.resolve(label); }
 
     private static LabelNode nextRealOrLabelTarget(JumpInsnNode jump) {
         for (var node = jump.getNext(); node != null; node = node.getNext()) {
@@ -509,14 +460,5 @@ final class MethodRewriter implements Opcodes {
         return null;
     }
 
-    private static Set<LabelNode> jumpTargets(MethodNode method) {
-        var targets = new HashSet<LabelNode>();
-        for (var insn : method.instructions) {
-            if (insn instanceof JumpInsnNode jump) targets.add(jump.label);
-            else if (insn instanceof TableSwitchInsnNode table) { targets.add(table.dflt); targets.addAll(table.labels); }
-            else if (insn instanceof LookupSwitchInsnNode lookup) { targets.add(lookup.dflt); targets.addAll(lookup.labels); }
-        }
-        for (var block : method.tryCatchBlocks) { targets.add(block.handler); targets.add(block.start); targets.add(block.end); }
-        return targets;
-    }
+    private static Set<LabelNode> jumpTargets(MethodNode method) { return dev.classrevive.transforms.flow.Cfg.jumpTargets(method); }
 }

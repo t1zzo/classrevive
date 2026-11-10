@@ -19,7 +19,10 @@ final class RenameCommand {
                 switch (args[i]) {
                     case "--output" -> output = Path.of(args[i + 1]);
                     case "--mapping" -> mapping = Path.of(args[i + 1]);
-                    case "--proguard-mapping" -> proguard = Path.of(args[i + 1]);
+                    case "--proguard-mapping", "--yguard-log" -> {
+                        if (proguard != null) throw new IllegalArgumentException("Use either --proguard-mapping or --yguard-log, not both.");
+                        proguard = Path.of(args[i + 1]);
+                    }
                     case "--timeout-seconds" -> seconds = Integer.parseInt(args[i + 1]);
                     default -> throw new IllegalArgumentException("Unknown option: " + args[i]);
                 }
@@ -28,7 +31,7 @@ final class RenameCommand {
             if (output == null || seconds < 1 || seconds > 3600)
                 throw new IllegalArgumentException("Require --output and timeout-seconds 1..3600.");
             out.println(proguard != null
-                ? "Restoring names from a ProGuard/R8 mapping (same-package classes and private members only) in a separate worker JVM. Original retained; target code is not executed."
+                ? "Restoring names from a ProGuard/R8 mapping or yGuard log (same-package classes and private members only) in a separate worker JVM. Original retained; target code is not executed."
                 : mapping == null
                 ? "Renaming classes with generated readable aliases in a separate worker JVM. Original retained; target code is not executed."
                 : "Renaming classes and private members with explicit mappings in a separate worker JVM. Original retained; target code is not executed.");
@@ -37,7 +40,7 @@ final class RenameCommand {
                 : mapping == null
                 ? new RenameJob().run(input, output, Duration.ofSeconds(seconds))
                 : new RenameJob().run(input, output, Duration.ofSeconds(seconds), mapping);
-            if (proguard != null) out.println("Skipped ProGuard rules and their reasons are listed in rename.json under \"proguard\".");
+            if (proguard != null) out.println("Skipped rules and their reasons are listed in rename.json under \"proguard\" (or \"yguard\").");
             out.printf("Worker: %s; classes: %d; renamed: %d; members: %d; reflected literals: %d%n", result.worker().status(), result.classes(), result.renamed(), result.members(), result.reflectionRewrites());
             out.println("Evidence: " + Main.safe(output.toAbsolutePath().resolve("rename.json").toString()));
             out.println("Aliases and explicit mappings are not recovered originals; standard manifest attributes, services, literal reflection calls and private members are rewritten. Variables, serialization, other resources and external callers are not. Behavior not verified.");

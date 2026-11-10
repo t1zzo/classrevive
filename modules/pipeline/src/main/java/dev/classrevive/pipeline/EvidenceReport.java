@@ -187,6 +187,13 @@ public final class EvidenceReport {
                            Map<String,Object> portableNames, List<dev.classrevive.model.Diagnostic> notices,
                            Map<String,Object> obfuscation, Map<String,Object> embeddedLibraries, Map<String,Object> compiler,
                            Map<String,Object> stubs, Map<String,Object> deobfuscation) throws IOException {
+        job(output, inputHash, job, multiRelease, portableNames, notices, obfuscation, embeddedLibraries, compiler, stubs, deobfuscation, null);
+    }
+    /** Phase 2DK additive {@code inferred_names}: guessed names with rule, evidence and confidence, or null when {@code --infer-names} was off. */
+    public static void job(Path output, String inputHash, DecompilationJob.VerifiedJob job, Map<String,Object> multiRelease,
+                           Map<String,Object> portableNames, List<dev.classrevive.model.Diagnostic> notices,
+                           Map<String,Object> obfuscation, Map<String,Object> embeddedLibraries, Map<String,Object> compiler,
+                           Map<String,Object> stubs, Map<String,Object> deobfuscation, Map<String,Object> inferredNames) throws IOException {
         var data = new TreeMap<String,Object>();
         data.put("schema_version", 1); data.put("kind", "decompilation"); data.put("tool_version", "0.1.0");
         data.put("input_sha256", inputHash); data.put("environment", environment());
@@ -216,6 +223,7 @@ public final class EvidenceReport {
         if (compiler != null) data.put("compiler", compiler);
         if (stubs != null) data.put("missing_type_stubs", stubs);
         if (deobfuscation != null) data.put("deobfuscation", deobfuscation);
+        if (inferredNames != null) data.put("inferred_names", inferredNames);
         write(output.resolve("report.json"), data);
     }
 }

@@ -69,6 +69,14 @@ final class ObfuscationBanner extends JPanel {
         };
     }
 
+    /** Phase G7: the same wording for the report's own section ({@code report.json} {@code obfuscation}). */
+    static String verdictName(dev.classrevive.workbench.ResultIndex.ReportedObfuscation found) {
+        if (found.verdict().equals("NONE")) return Text.t("obfuscation.none");
+        var top = found.top();
+        if (found.verdict().equals("UNKNOWN") || top == null) return Text.t("obfuscation.unknown");
+        return Text.t("obfuscation.likely", top.obfuscator(), Text.t("confidence." + top.confidence()));
+    }
+
     /** The score and the number of techniques, or what an unknown verdict means. */
     static String note(ObfuscationCheck.Detection detection) {
         return switch (detection.verdict()) {

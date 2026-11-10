@@ -63,32 +63,49 @@ final class InspectorPanel extends JPanel {
         put(name);
         put(wrap(Ui.visible(item.name().replace('/', '.')), true));
         var evidence = workspace.evidence(item.name());
+        var result = workspace.result();
+        var insights = workspace.insights();
+        var reversal = insights == null ? null : insights.reversal();
+        boolean reversed = reversal != null && reversal.applied();
         if (evidence.isPresent() && evidence.get().level() != null) {
             var entry = evidence.get();
             put(Box.createVerticalStrut(10));
-            var chip = Ui.chip(Text.t("level." + entry.level().name()), Theme.level(entry.level()));
-            chip.setAlignmentX(LEFT_ALIGNMENT);
-            put(chip);
+            var chips = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            chips.setOpaque(false);
+            chips.add(Ui.chip(Text.t("level." + entry.level().name()), Theme.level(entry.level())));
+            if (reversed) { chips.add(Box.createHorizontalStrut(6)); chips.add(Ui.chip(Text.t("inspector.reversed"), Theme.ACCENT)); }
+            chips.setAlignmentX(LEFT_ALIGNMENT);
+            chips.setMaximumSize(new Dimension(Integer.MAX_VALUE, chips.getPreferredSize().height));
+            put(chips);
             put(Box.createVerticalStrut(4));
             put(wrap(Text.t("level." + entry.level().name() + ".meaning"), true));
-            section(Text.t("inspector.evidence"));
+
+            section(Text.t("inspector.roundTrip"));
+            int measured = entry.identical() + entry.equivalent() + entry.different();
+            if (measured == 0) put(wrap(Text.t("inspector.noBodies"), true));
+            else {
+                var bar = new Ui.Bar(new int[] {entry.identical(), entry.equivalent(), entry.different()},
+                    new Color[] {Theme.level(ResultIndex.Level.EXACT), Theme.level(ResultIndex.Level.CLOSE), Theme.level(ResultIndex.Level.UNVERIFIED)},
+                    Text.t("inspector.roundTrip.tip", OverviewPanel.percent(entry.identical() + entry.equivalent(), measured)));
+                bar.setPreferredSize(new Dimension(240, 8));
+                put(bar);
+                put(Box.createVerticalStrut(6));
+                outcomeRow(Text.t("inspector.identical"), entry.identical(), ResultIndex.Level.EXACT);
+                outcomeRow(Text.t("inspector.equivalent"), entry.equivalent(), ResultIndex.Level.CLOSE);
+                outcomeRow(Text.t("inspector.different"), entry.different(), ResultIndex.Level.UNVERIFIED);
+            }
+            if (!entry.methods().isEmpty()) methodList(item, entry);
+
+            section(Text.t("inspector.origin.section"));
             row(Text.t("inspector.origin"), originText(entry.origin()));
             row(Text.t("inspector.signatures"), entry.matchedSymbols() + " / " + entry.expectedSymbols());
-            row(Text.t("inspector.identical"), String.valueOf(entry.identical()));
-            row(Text.t("inspector.equivalent"), String.valueOf(entry.equivalent()));
-            row(Text.t("inspector.different"), String.valueOf(entry.different()));
-            if (!entry.differentMethods().isEmpty()) {
-                section(Text.t("inspector.differentMethods"));
-                var list = new JList<>(entry.differentMethods().stream().limit(200).map(Ui::visible).toArray(String[]::new));
-                list.setFont(Theme.codeFont(11));
-                list.setVisibleRowCount(Math.min(8, entry.differentMethods().size()));
-                var scroll = new JScrollPane(list);
-                scroll.setAlignmentX(LEFT_ALIGNMENT);
-                scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, scroll.getPreferredSize().height));
-                put(scroll);
-            }
             // Phase 2BV renamed this class (case collision or invalid identifier) before the engines saw it.
             if (!entry.className().equals(item.name())) row(Text.t("inspector.portableName"), Ui.visible(entry.className().replace('/', '.')));
+            if (reversed) {
+                int edits = result.editedClasses().getOrDefault(entry.className(), 0);
+                row(Text.t("inspector.readFrom"), Text.t("inspector.readFrom.reversed"));
+                if (edits > 0) row(Text.t("inspector.edits"), String.valueOf(edits));
+            }
         } else if (!workspace.decompiled()) {
             decompileHint();
         } else {
@@ -102,6 +119,50 @@ final class InspectorPanel extends JPanel {
         row(Text.t("inspector.interfaces"), String.valueOf(info.interfaces().size()));
         row(Text.t("inspector.fields"), String.valueOf(info.fields().size()));
         row(Text.t("inspector.methods"), String.valueOf(info.methods().size()));
+    }
+
+    private void outcomeRow(String name, int count, ResultIndex.Level color) {
+        var row = new JPanel(new BorderLayout(Ui.GAP, 0));
+        row.setOpaque(false);
+        var label = new JLabel(name);
+        label.setIcon(Icons.dot(Theme.level(color), 10));
+        row.add(label, BorderLayout.WEST);
+        row.add(new JLabel(String.valueOf(count), SwingConstants.RIGHT), BorderLayout.CENTER);
+        row.setAlignmentX(LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height + 4));
+        row.setBorder(Ui.padding(2, 0, 2, 0));
+        body.add(row);
+    }
+
+    /** Every measured method with its outcome, the ones that differ first. */
+    private void methodList(Workspace.ClassItem item, ResultIndex.ClassEntry entry) {
+        section(Text.t("inspector.methodsMeasured", entry.methods().size()));
+        var rank = Map.of(ResultIndex.Outcome.DIFFERENT, 0, ResultIndex.Outcome.EQUIVALENT_AFTER_NORMALIZATION, 1, ResultIndex.Outcome.IDENTICAL, 2);
+        var rows = entry.methods().entrySet().stream()
+            .sorted(Comparator.<Map.Entry<String,ResultIndex.Outcome>>comparingInt(e -> rank.get(e.getValue())).thenComparing(Map.Entry::getKey))
+            .limit(200).toList();
+        var model = new DefaultListModel<Map.Entry<String,ResultIndex.Outcome>>();
+        rows.forEach(model::addElement);
+        var list = new JList<>(model);
+        list.setCellRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> l, Object value, int index, boolean selected, boolean focus) {
+                @SuppressWarnings("unchecked") var e = (Map.Entry<String,ResultIndex.Outcome>) value;
+                super.getListCellRendererComponent(l, Descriptors.pretty(item.name(), e.getKey()), index, selected, false);
+                setIcon(Icons.dot(Theme.level(switch (e.getValue()) {
+                    case IDENTICAL -> ResultIndex.Level.EXACT;
+                    case EQUIVALENT_AFTER_NORMALIZATION -> ResultIndex.Level.CLOSE;
+                    case DIFFERENT -> ResultIndex.Level.UNVERIFIED;
+                }), 10));
+                setToolTipText(Text.t("outcome." + e.getValue().name()));
+                setFont(Theme.codeFont(11));
+                return this;
+            }
+        });
+        list.setVisibleRowCount(Math.min(8, rows.size()));
+        var scroll = new JScrollPane(list);
+        scroll.setAlignmentX(LEFT_ALIGNMENT);
+        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, scroll.getPreferredSize().height));
+        put(scroll);
     }
 
     private void showPackage(Workspace workspace, String pkg) {
@@ -126,9 +187,9 @@ final class InspectorPanel extends JPanel {
         section(Text.t("inspector.confidence"));
         var counts = new EnumMap<ResultIndex.Level,Integer>(ResultIndex.Level.class);
         for (var level : levels) if (level != null) counts.merge(level, 1, Integer::sum);
-        var bar = new OverviewPanel.LevelBar(counts);
+        var bar = OverviewPanel.levelBar(counts);
         bar.setAlignmentX(LEFT_ALIGNMENT);
-        bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 10));
+        bar.setPreferredSize(new Dimension(240, 8));
         put(bar);
         put(Box.createVerticalStrut(6));
         for (var level : ResultIndex.Level.values()) {
@@ -159,8 +220,7 @@ final class InspectorPanel extends JPanel {
 
     private void section(String title) {
         if (body.getComponentCount() > 0) body.add(Box.createVerticalStrut(16));
-        var label = Ui.muted(title.toUpperCase(Text.locale()));
-        label.setFont(label.getFont().deriveFont(Font.BOLD, label.getFont().getSize2D() - 1.5f));
+        var label = Ui.caption(title);
         label.setAlignmentX(LEFT_ALIGNMENT);
         body.add(label);
         body.add(Box.createVerticalStrut(6));

@@ -136,6 +136,125 @@ public final class ObfuscationProfile {
         private final Set<String> identityHelpers = new HashSet<>();
         /** Exception handlers that start by passing the caught exception to a static (LX;)LX; method and throwing the result. */
         private final Map<String,List<String[]>> rethrowSites = new HashMap<>();
+        // Phase 2DK: Radon 2's injected classes and call shapes (see radon()).
+        private final Set<String> radonDecryptors = new HashSet<>(), radonDecoders = new HashSet<>(), radonStatic = new HashSet<>();
+        private final Set<String> radonWritten = new HashSet<>(), radonIntoLocal = new HashSet<>(), radonMemberless = new HashSet<>();
+        private final Map<String,Integer> radonStringCalls = new HashMap<>(), radonNumberCalls = new HashMap<>(), radonPredicateReads = new HashMap<>();
+        private final Map<String,Integer> radonFakeHandlers = new HashMap<>();
+        private final Map<String,Set<String>> radonMethodNames = new HashMap<>();
+        private final List<String[]> radonFastSites = new ArrayList<>();
+
+        /**
+         * Phase 2DK: Radon 2 (docs/radon-yguard.md). Its string decryptor is a static {@code (Object, int)String} in a class with
+         * a static {@code Map} and {@code long[]} that reads the stack trace, called as {@code ldc; int; invokestatic}; its
+         * number decoder a {@code Thread} subclass with a static {@code (Object, int)Object} that reads the stack trace; its
+         * heavy invokedynamic sites use an {@code (Object, Object, Object)Object} bootstrap, are named {@code a b d e f g} and
+         * take {@code (..., String, long)}; its fast ones have a name that decrypts to four parts separated by two NULs; flow
+         * predicates are {@code static final boolean/int} fields nothing writes, copied into a local; fake catch blocks are
+         * caught by an empty exception class of the jar; null checks become an {@code Object} call in a {@code try} catching
+         * {@code NullPointerException}; hidden code sets {@code bridge} on ordinary methods; bad annotations have type {@code @}.
+         */
+        private void radon(ClassNode node) {
+            boolean map = false, longs = false;
+            for (var field : node.fields) {
+                if ((field.access & ACC_STATIC) != 0 && field.desc.equals("Ljava/util/Map;")) map = true;
+                if ((field.access & ACC_STATIC) != 0 && field.desc.equals("[J")) longs = true;
+                if ((field.access & (ACC_STATIC | ACC_FINAL)) == (ACC_STATIC | ACC_FINAL) && field.value == null && (field.desc.equals("Z") || field.desc.equals("I")))
+                    radonStatic.add(node.name + "." + field.name);
+                radonBad(field.visibleAnnotations); radonBad(field.invisibleAnnotations);
+            }
+            radonBad(node.visibleAnnotations); radonBad(node.invisibleAnnotations);
+            if (node.methods.isEmpty() && node.fields.isEmpty() && node.superName != null && (node.superName.endsWith("Exception")
+                || node.superName.endsWith("Error") || node.superName.equals("java/lang/Throwable"))) radonMemberless.add(node.name);
+            var names = radonMethodNames.computeIfAbsent(node.name, k -> new HashSet<>());
+            for (var method : node.methods) {
+                names.add(method.name);
+                radonBad(method.visibleAnnotations); radonBad(method.invisibleAnnotations);
+                boolean isStatic = (method.access & ACC_STATIC) != 0, trace = false;
+                for (var insn : method.instructions) if (insn instanceof MethodInsnNode call && call.name.equals("getStackTrace")) trace = true;
+                if (isStatic && trace && map && longs && method.desc.equals("(Ljava/lang/Object;I)Ljava/lang/String;"))
+                    radonDecryptors.add(node.name + "." + method.name + method.desc);
+                if (isStatic && trace && "java/lang/Thread".equals(node.superName) && method.desc.equals("(Ljava/lang/Object;I)Ljava/lang/Object;"))
+                    radonDecoders.add(node.name + "." + method.name + method.desc);
+                if ((method.access & ACC_BRIDGE) != 0 && !method.name.startsWith("<") && !javacBridge(method)) metric("radon.hidden_methods", 1);
+                for (var insn : method.instructions) {
+                    if (insn instanceof MethodInsnNode call && call.getOpcode() == INVOKESTATIC) {
+                        String key = call.owner + "." + call.name + call.desc;
+                        if (call.desc.equals("(Ljava/lang/Object;I)Ljava/lang/String;") && constant(previous(call))
+                            && previous(previous(call)) instanceof LdcInsnNode ldc && ldc.cst instanceof String) radonStringCalls.merge(key, 1, Integer::sum);
+                        if (call.desc.equals("(Ljava/lang/Object;I)Ljava/lang/Object;") && next(call) instanceof TypeInsnNode cast && cast.getOpcode() == CHECKCAST
+                            && cast.desc.startsWith("java/lang/")) radonNumberCalls.merge(key, 1, Integer::sum);
+                    }
+                    if (insn instanceof FieldInsnNode field) {
+                        String key = field.owner + "." + field.name;
+                        if (field.getOpcode() == PUTSTATIC || field.getOpcode() == PUTFIELD) radonWritten.add(key);
+                        if (field.getOpcode() == GETSTATIC && next(field) instanceof VarInsnNode store && store.getOpcode() == ISTORE) {
+                            radonIntoLocal.add(key); radonPredicateReads.merge(key, 1, Integer::sum);
+                        }
+                    }
+                    if (insn instanceof InvokeDynamicInsnNode indy) {
+                        if (indy.bsm.getDesc().equals("(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+                            && Set.of("a", "b", "d", "e", "f", "g").contains(indy.name) && indy.desc.contains("Ljava/lang/String;J)")) metric("radon.indy_heavy_sites", 1);
+                        else if (indy.bsm.getDesc().equals("(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;"))
+                            radonFastSites.add(new String[] {indy.bsm.getOwner(), indy.bsm.getName(), indy.name});
+                    }
+                }
+                if (method.tryCatchBlocks != null) for (var block : method.tryCatchBlocks) {
+                    var first = next(block.handler);
+                    if (block.type != null && first != null && first.getOpcode() == DUP && next(first) instanceof MethodInsnNode call && call.owner.equals(block.type)
+                        && call.desc.equals("()V") && next(call) != null && next(call).getOpcode() == ATHROW) radonFakeHandlers.merge(block.type, 1, Integer::sum);
+                    if ("java/lang/NullPointerException".equals(block.type)) {
+                        var probe = next(block.start);
+                        if (probe != null && probe.getOpcode() == ACONST_NULL) probe = next(probe);
+                        if (probe instanceof MethodInsnNode call && call.owner.equals("java/lang/Object")
+                            && Set.of("getClass", "hashCode", "toString", "equals").contains(call.name)
+                            && next(call) != null && next(call).getOpcode() == POP && next(block.handler) != null && next(block.handler).getOpcode() == POP)
+                            metric("radon.null_check_traps", 1);
+                    }
+                }
+            }
+        }
+        private void radonBad(List<AnnotationNode> annotations) {
+            if (annotations != null) for (var annotation : annotations) if (annotation.desc.equals("@")) metric("radon.bad_annotations", 1);
+        }
+        /** javac's bridge: loads, casts, one call to a method of the same name, a return. */
+        private static boolean javacBridge(MethodNode method) {
+            int calls = 0;
+            for (var insn : method.instructions) {
+                int op = insn.getOpcode();
+                if (op < 0 || op >= ILOAD && op <= ALOAD || op == CHECKCAST || op >= IRETURN && op <= RETURN) continue;
+                if (insn instanceof MethodInsnNode call && call.name.equals(method.name) && calls++ == 0) continue;
+                return false;
+            }
+            return calls == 1;
+        }
+        /** Phase 2DK: Radon totals; returns the flow evidence (predicate reads, fake catch sites, null-check traps). */
+        private int radonTotals(Map<Technique,Count> counted) {
+            int strings = 0, numbers = 0, fast = 0, predicates = 0, reads = 0, fakes = 0;
+            for (var e : radonStringCalls.entrySet()) if (radonDecryptors.contains(e.getKey())) strings += e.getValue();
+            for (var e : radonNumberCalls.entrySet()) if (radonDecoders.contains(e.getKey())) numbers += e.getValue();
+            for (var site : radonFastSites) for (String name : radonMethodNames.getOrDefault(site[0], Set.of())) {
+                var parts = fastName(site[2], site[0], site[1], name).split("\u0000\u0000", -1);
+                if (parts.length == 4 && (parts[3].equals("a") || parts[3].equals("b")) && parts[2].startsWith("(")) { fast++; break; }
+            }
+            for (String key : radonStatic) if (radonIntoLocal.contains(key) && !radonWritten.contains(key)) { predicates++; reads += radonPredicateReads.get(key); }
+            for (var e : radonFakeHandlers.entrySet()) if (radonMemberless.contains(e.getKey())) fakes += e.getValue();
+            metric("radon.string_decryptors", radonDecryptors.size()); metric("radon.string_sites", strings);
+            metric("radon.number_decoders", radonDecoders.size()); metric("radon.number_sites", numbers);
+            metric("radon.indy_fast_sites", fast); metric("radon.predicate_fields", predicates); metric("radon.predicate_reads", reads);
+            metric("radon.fake_catch_sites", fakes);
+            if (strings >= 3 && !counted.containsKey(Technique.STRING_ENCRYPTION))
+                counted.put(Technique.STRING_ENCRYPTION, new Count(1, strings, List.of("Radon-style (Object, int)String decryptor: " + strings + " call sites")));
+            if (numbers >= 3 && !counted.containsKey(Technique.CONSTANT_ENCRYPTION))
+                counted.put(Technique.CONSTANT_ENCRYPTION, new Count(1, numbers, List.of("numbers decoded through a Thread subclass's (Object, int)Object: " + numbers + " sites")));
+            return reads + fakes + metric.apply("radon.null_check_traps");
+        }
+        private static String fastName(String name, String owner, String bootstrap, String third) {
+            int[] keys = {owner.replace('/', '.').hashCode(), bootstrap.hashCode(), third.hashCode()};
+            var chars = name.toCharArray();
+            for (int i = 0; i < chars.length; i++) chars[i] = (char) (chars[i] ^ keys[i % 3]);
+            return new String(chars);
+        }
 
         public void addResource(String name, long size) {
             String lower = name.toLowerCase(Locale.ROOT);
@@ -177,6 +296,7 @@ public final class ObfuscationProfile {
             if (references(node, "com/preemptive/")) metric("marker.dasho", 1);
             skidfuscator(node);
             aidsfuscator(node);
+            radon(node);
         }
 
         /**
@@ -336,6 +456,7 @@ public final class ObfuscationProfile {
             for (var method : node.methods) {
                 if (method.name.startsWith("<")) continue;
                 members++; if (method.name.length() <= 2) shortMembers++;
+                if (nonAsciiShort(method.name)) metric("names.non_ascii_short_members", 1);
                 if (!javaIdentifier(method.name) && !kotlinMangled(method.name) && !(kotlin && KEYWORDS.contains(method.name))) {
                     metric("names.non_identifier_methods", 1);
                     hit(Technique.NON_IDENTIFIER_NAMES, cls, "method " + clean(cls) + "#" + clean(method.name) + clean(method.desc));
@@ -344,12 +465,14 @@ public final class ObfuscationProfile {
             }
             for (var field : node.fields) {
                 members++; if (field.name.length() <= 2) shortMembers++;
+                if (nonAsciiShort(field.name)) metric("names.non_ascii_short_members", 1);
                 if (!javaIdentifier(field.name) && !kotlinMangled(field.name) && !(kotlin && KEYWORDS.contains(field.name))) {
                     metric("names.non_identifier_fields", 1);
                     hit(Technique.NON_IDENTIFIER_NAMES, cls, "field " + clean(cls) + "#" + clean(field.name));
                 }
                 if (field.name.contains("ALLATORI")) metric("marker.allatori", 1);
             }
+            if (nonAsciiShort(own)) metric("names.non_ascii_short_classes", 1);
             boolean anonymous = !own.isEmpty() && own.chars().allMatch(Character::isDigit);
             boolean shortClass = !info && !anonymous && own.length() <= 2;
             boolean shortMembersMostly = members >= 3 && shortMembers * 10 >= members * 6;
@@ -634,6 +757,7 @@ public final class ObfuscationProfile {
                 for (String where : clinitDecryption.values()) if (list.size() < SAMPLES) list.add("decrypts in " + where);
                 counted.put(Technique.STRING_ENCRYPTION, new Count(stringClasses.size(), stringSites + calls + clinitDecryption.size(), list));
             }
+            int radonFlow = radonTotals(counted);
             if (intSites + longSites >= 3)
                 counted.put(Technique.CONSTANT_ENCRYPTION, new Count(constantClasses.size(), intSites + longSites, constantSamples));
             // Hidden calls: invokedynamic with a bootstrap outside the JDK and known language runtimes.
@@ -714,7 +838,7 @@ public final class ObfuscationProfile {
                 cfOccurrences += selfLoops;
                 for (String cls : classSets.getOrDefault(Technique.CONTROL_FLOW, Set.of())) if (cfHitClasses.add(cls)) cfClasses++;
             }
-            if (conditions >= 3 || dispatchers >= 2 || heavy >= 3 || flagged >= 3 || flagAccessor || selfLoops >= 2)
+            if (conditions >= 3 || dispatchers >= 2 || heavy >= 3 || flagged >= 3 || flagAccessor || selfLoops >= 2 || radonFlow >= 3)
                 counted.put(Technique.CONTROL_FLOW, new Count(cfClasses, cfOccurrences, List.copyOf(samples.getOrDefault(Technique.CONTROL_FLOW, new LinkedHashSet<>()))));
             // Phase 2CA: exception obfuscation, handlers rethrowing through an identity helper of the class set.
             var rethrowClasses = new LinkedHashSet<String>(); int rethrows = 0, helpers = 0; var rethrowSamples = new ArrayList<String>();
@@ -756,6 +880,10 @@ public final class ObfuscationProfile {
     private static AbstractInsnNode next(AbstractInsnNode insn) {
         for (var node = insn.getNext(); node != null; node = node.getNext()) if (node.getOpcode() >= 0) return node;
         return null;
+    }
+    /** Phase 2DK: a name of at most two characters, a Java identifier, with a character outside ASCII (yGuard's default names). */
+    static boolean nonAsciiShort(String name) {
+        return !name.isEmpty() && name.length() <= 2 && name.chars().anyMatch(c -> c > 127) && javaIdentifier(name);
     }
     private static AbstractInsnNode previous(AbstractInsnNode insn) {
         if (insn == null) return null;

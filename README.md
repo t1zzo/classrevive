@@ -13,14 +13,14 @@ ClassRevive runs four well-known Java decompilers (CFR, Vineflower, Procyon and 
 - **Decompiles with four engines and picks per file and per method.** Each engine runs in its own JVM. Candidates are ranked by whether they recompile, how many structural signatures match the original, and how many method bodies come back identical or equivalent after recompilation.
 - **Verifies instead of guessing.** Every result says what was measured: recompilation, signatures per class, a round trip per method. Partial results keep a readable bytecode listing of what could not be recovered.
 - **Handles awkward inputs.** Multi-release jars, class names that collide by letter case, executables that carry a jar, bundles of jars, Android APK and dex files (converted with dex2jar).
-- **Detects obfuscation and undoes some of it.** A static profile names the techniques and the obfuscator they point to, with a score and the reasons. Two community obfuscators (Skidfuscator and Aidsfuscator) are reversed automatically, and Zelix KlassMaster opaque-predicate flags that are provably constant are folded.
+- **Detects obfuscation and undoes some of it.** A static profile names the techniques and the obfuscator they point to, with a score and the reasons. Three open-source obfuscators (Skidfuscator, Aidsfuscator and Radon) are reversed automatically, and Zelix KlassMaster opaque-predicate flags that are provably constant are folded.
 - **Never runs the code it analyzes.** Target classes are never initialized and their methods are never invoked. See [Security](#security-and-responsible-use) for the precise boundary.
 
 ## What it does not do
 
 - It does not prove that the recovered program behaves like the original. Behavior is always reported as `NOT_VERIFIED`.
 - It cannot bring back what compilation threw away: comments, formatting and often local variable names.
-- It does not recover names an obfuscator renamed, unless you supply the obfuscator's mapping file.
+- It does not recover the original names an obfuscator removed. You can supply the obfuscator's mapping file (ProGuard, R8, yGuard), or ask for inferred names (`--infer-names`), which are marked as guesses with their evidence.
 - Recompilation runs on JDK 21, so class files built for Java 22 or newer are read and listed but not verified.
 - It is not a malware scanner or a sandbox. Its worker JVMs isolate faults, not hostile code.
 - It does not decompile native code to Java. Bundled native libraries can be triaged, optionally with a Ghidra you install yourself.
@@ -57,8 +57,8 @@ New to decompiling? Read [Getting started](docs/getting-started.md), or the [gui
 | Verified selection | Recompilation, structural signatures, per-method round trip, bounded hybrids, compiler-guided source repairs, per-method composition across engines | [Architecture](ARCHITECTURE.md#selection-and-composition) |
 | Inputs | `.class`, `.jar`, multi-release jars, executables with an embedded jar, bundles of jars, Android APK and dex | [CLI reference](docs/cli-reference.md#executables-bundles-and-android-inputs) |
 | Missing libraries | Pass your own jars with `--classpath`; otherwise inferred stand-ins let the result compile, and it is marked stub-backed | [CLI reference](docs/cli-reference.md#selection-evidence-and-limits) |
-| Obfuscation | Static technique profile and obfuscator hypotheses with scores; Skidfuscator and Aidsfuscator reversal; opaque-predicate flag folding; opt-in constant and string-decoding passes | [Obfuscation detection](docs/obfuscation-detection.md) |
-| Renaming | Readable aliases, explicit mapping files, or a ProGuard/R8 mapping to restore original names where that is safe | [CLI reference](docs/cli-reference.md#rename-experimental) |
+| Obfuscation | Static technique profile and obfuscator hypotheses with scores; Skidfuscator, Aidsfuscator and Radon reversal; a general control-flow simplification pass; opaque-predicate flag folding; opt-in constant and string-decoding passes | [Obfuscation detection](docs/obfuscation-detection.md) |
+| Renaming | Readable aliases, explicit mapping files, a ProGuard/R8 mapping or a yGuard log to restore original names where that is safe, and opt-in inferred names marked with their evidence | [CLI reference](docs/cli-reference.md#rename-experimental) |
 | Diagnostics | Static reflection, class-loading, invokedynamic and crypto clues; compiler fingerprint; embedded library recognition; optional Ghidra triage of native libraries | [CLI reference](docs/cli-reference.md#diagnose) |
 | Reports | `report.txt`, `report.json` (schema v1), a self-contained `report.html` confidence map, IDE project export | [Report format](docs/reports.md) |
 | Measurement | Benchmark command, a scoreboard on hash-checked Maven Central libraries, and a failure lab that turns failures into regression tests | [Benchmarks](docs/benchmarks.md) |
@@ -127,7 +127,7 @@ Obfuscator and product names (Zelix KlassMaster, Allatori, DashO, Stringer, ProG
 - [Getting started](docs/getting-started.md) · [Guia para iniciantes (português)](docs/guia-iniciante.md)
 - [Command-line reference](docs/cli-reference.md)
 - [Architecture](ARCHITECTURE.md) and [status: what works and what remains](docs/status.md)
-- [Report format](docs/reports.md) · [Obfuscation detection](docs/obfuscation-detection.md) · [Dynamic-linkage diagnostics](docs/dynamic-diagnostics.md)
+- [Report format](docs/reports.md) · [Obfuscation detection](docs/obfuscation-detection.md) · [Control-flow simplification](docs/control-flow.md) · [Radon and yGuard](docs/radon-yguard.md) · [Inferred names](docs/inferred-names.md) · [Dynamic-linkage diagnostics](docs/dynamic-diagnostics.md)
 - [Benchmarks](docs/benchmarks.md) · [Changelog](CHANGELOG.md)
 - Experimental: [pass API](docs/pass-sdk.md), [sandbox](docs/sandbox.md), [behavior protocol](docs/behavior-protocol.md)
 

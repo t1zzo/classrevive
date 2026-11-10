@@ -1,0 +1,32 @@
+# Phase 2DK corpus configuration (variant): "fast" invokedynamic and strings without context checking; otherwise every Radon 2 transformer ClassRevive reverses, at the strength that changes reading
+# and recompilation. {input}, {output} and {libraries} are filled in by scripts/benchmarks/obfuscators.py.
+input: "{input}"
+output: "{output}"
+libraries:
+  - "{libraries}"
+string_encryption:
+  check_context: false
+  pool_strings: false
+number_obfuscation:
+  context_checking: true
+  arithmetic_operations: true
+  bitwise_operations: true
+  integer_tampering: true
+  long_tampering: true
+  float_tampering: true
+  double_tampering: true
+reference_obfuscation:
+  hide_with_fast_indy: true
+flow_obfuscation:
+  replace_goto: true
+  insert_bogus_switch_jumps: true
+  insert_bogus_jumps: true
+  mutilate_null_check: true
+  split_blocks: true
+  fake_catch_blocks: true
+hide_code:
+  hide_classes: true
+  hide_methods: true
+  hide_fields: true
+static_initialization: true
+bad_annotation: true

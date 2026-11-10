@@ -8,6 +8,7 @@ import dev.classrevive.model.Limits;
 import dev.classrevive.transforms.ClassRenamer;
 import dev.classrevive.transforms.MappingFile;
 import dev.classrevive.transforms.ProguardMapping;
+import dev.classrevive.transforms.YguardLog;
 import dev.classrevive.transforms.RenameEngine;
 import java.io.*;
 import java.nio.file.*;
@@ -28,13 +29,15 @@ public final class RenameJob {
         String name=input.getFileName()==null?"":input.getFileName().toString().toLowerCase(Locale.ROOT);
         boolean jar=name.endsWith(".jar");
         if((!jar&&!name.endsWith(".class"))||!Files.isRegularFile(input,LinkOption.NOFOLLOW_LINKS)) throw new IOException("Expected regular .jar or .class input");
-        byte[] mappingBytes=null,proguardBytes=null; MappingFile.Plan mappingPlan=null; ProguardMapping.Parsed proguardMapping=null;
+        byte[] mappingBytes=null,proguardBytes=null; MappingFile.Plan mappingPlan=null; ProguardMapping.Parsed proguardMapping=null; boolean yguard=false;
         if(mappingFile!=null) {
             mappingFile=mappingFile.toAbsolutePath().normalize();
             if(!Files.isRegularFile(mappingFile,LinkOption.NOFOLLOW_LINKS)) throw new IOException("Mapping file must be a regular file");
             if(proguard) {
                 proguardBytes=readBounded(mappingFile,ProguardMapping.MAX_BYTES,"ProGuard mapping");
-                proguardMapping=ProguardMapping.parse(proguardBytes);
+                // Phase 2DK: a yGuard log (yguardlog.xml, plain or gzipped) is read the same way; fields get their types later.
+                yguard=YguardLog.looksLike(proguardBytes);
+                proguardMapping=yguard?YguardLog.parse(proguardBytes,null):ProguardMapping.parse(proguardBytes);
             } else {
                 mappingBytes=readBounded(mappingFile,MappingFile.MAX_BYTES,"Mapping file");
                 mappingPlan=MappingFile.parse(mappingBytes);
@@ -76,12 +79,13 @@ public final class RenameJob {
             }
             if(jar) ArchiveGuards.rejectSignedOrDigested(snapshot);
             if(proguardMapping!=null) {
-                Files.write(output.resolve("proguard-mapping.txt"),proguardBytes,StandardOpenOption.CREATE_NEW);
+                Files.write(output.resolve(yguard?"yguard-log.xml":"proguard-mapping.txt"),proguardBytes,StandardOpenOption.CREATE_NEW);
                 var shapes=new TreeMap<String,ProguardMapping.ClassShape>();
                 for(var entry:classEntries) { var info=entry.classInfo();
                     shapes.put(info.name(),new ProguardMapping.ClassShape(info.access(),
                         info.fields().stream().map(m->new ProguardMapping.Member(m.name(),m.descriptor(),m.access())).toList(),
                         info.methods().stream().map(m->new ProguardMapping.Member(m.name(),m.descriptor(),m.access())).toList())); }
+                if(yguard) proguardMapping=YguardLog.parse(proguardBytes,shapes);
                 var conversion=ProguardMapping.convert(proguardMapping,shapes);
                 var skipped=new TreeMap<String,Object>(); conversion.skipped().forEach((reason,count)->skipped.put(reason.name(),count));
                 var samples=new ArrayList<Object>();
@@ -90,8 +94,8 @@ public final class RenameJob {
                 summary.put("applicable_classes",conversion.plan().classes().size()); summary.put("applicable_members",conversion.plan().members().size());
                 summary.put("inline_frames_ignored",conversion.inlineFrames()); summary.put("skipped",skipped); summary.put("skipped_samples",samples);
                 summary.put("note","Names come from the supplied mapping file. Cross-package classes and non-private members need hierarchy-aware renaming and are skipped.");
-                report.put("proguard",summary);
-                if(conversion.applied()==0) throw new IOException("ProGuard mapping has no rule applicable to this input");
+                report.put(yguard?"yguard":"proguard",summary);
+                if(conversion.applied()==0) throw new IOException((yguard?"yGuard log":"ProGuard mapping")+" has no rule applicable to this input");
                 mappingBytes=ProguardMapping.format(conversion.plan()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 if(mappingBytes.length>MappingFile.MAX_BYTES) throw new IOException("Converted mapping exceeds 1 MiB");
                 mappingPlan=MappingFile.parse(mappingBytes);
@@ -155,7 +159,7 @@ public final class RenameJob {
             }
             var inverse=new TreeMap<String,String>(); forward.forEach((from,to)->inverse.put(to,from));
             report.put("status",success?"RENAMED":"WORKER_FAILED"); report.put("classes",classEntries.size());
-            report.put("mapping",proguardMapping!=null?"proguard":mappingPlan==null?"planned":"explicit");
+            report.put("mapping",proguardMapping!=null?(yguard?"yguard":"proguard"):mappingPlan==null?"planned":"explicit");
             if(mappingPlan!=null) report.put("member_rules",mappingPlan.members().size());
             report.put("renamed",forward.size()); report.put("members_renamed",members.size()); report.put("reflection_rewrites",reflectionRewrites);
             report.put("forward",forward); report.put("inverse",inverse);

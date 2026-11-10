@@ -1,0 +1,63 @@
+app.AppException -> app.a:
+# {"fileName":"AppException.java","id":"sourceFile"}
+    int code -> a
+    4:4:void <init>(java.lang.String,int) -> <init>
+    5:5:int getCode() -> b
+    6:6:int code() -> a
+app.Config -> app.b:
+# {"fileName":"Config.java","id":"sourceFile"}
+    int port -> a
+    java.lang.String host -> b
+    boolean debug -> c
+    7:11:void <init>(java.util.Properties) -> <init>
+    12:12:boolean isDebug() -> b
+    13:13:java.lang.String summary() -> a
+app.Item -> app.c:
+# {"fileName":"Item.java","id":"sourceFile"}
+    java.lang.String label -> a
+    double price -> b
+    int quantity -> c
+    7:7:void <init>(java.lang.String,double,int) -> <init>
+    8:8:double getPrice() -> b
+    9:9:boolean isEmpty() -> c
+    10:10:void export(java.util.Map) -> a
+    11:11:java.lang.String check() -> a
+    12:12:java.lang.String toString() -> toString
+app.Job -> app.d:
+# {"fileName":"Job.java","id":"sourceFile"}
+    int counter -> a
+    long started -> b
+    2:2:void <init>() -> <init>
+    5:5:void tick() -> a
+    6:6:void run() -> run
+app.Main -> app.Main:
+# {"fileName":"Main.java","id":"sourceFile"}
+    2:2:void <init>() -> <init>
+    4:8:void main(java.lang.String[]) -> main
+app.Player -> app.e:
+# {"fileName":"Player.java","id":"sourceFile"}
+    java.lang.String name -> a
+    int score -> b
+    java.util.List items -> c
+    app.Team team -> d
+    6:8:void <init>(java.lang.String,int) -> <init>
+    9:9:java.lang.String getName() -> b
+    10:10:int getScore() -> c
+    11:11:void setScore(int) -> a
+    12:12:void addItem(app.Item) -> a
+    13:13:void setTeam(app.Team) -> b
+    14:14:java.lang.String describe() -> a
+    15:15:void grant(app.Item,int) -> a
+    16:16:void join(app.Team) -> a
+    17:17:java.lang.String toString() -> toString
+app.Team -> app.f:
+# {"fileName":"Team.java","id":"sourceFile"}
+    java.util.List members -> a
+    java.util.Map byName -> b
+    java.lang.String title -> c
+    3:5:void <init>() -> <init>
+    7:7:void addMember(app.Player) -> b
+    8:8:java.lang.String getTitle() -> b
+    9:9:void enroll(app.Player) -> a
+    10:10:java.lang.String label() -> a
+    11:11:java.lang.String toString() -> toString

@@ -42,7 +42,8 @@ public final class IntegerConstantPass implements BytecodePass {
         var writer = new ClassWriter(reader,0); type.accept(writer);
         return new TransformResult(writer.toByteArray(),changes,changes.size() == maxChanges);
     }
-    static boolean hasOpaqueAttributes(ClassNode type) {
+    /** Phase 2DL: public for the whole-jar {@code control-flow} pass. */
+    public static boolean hasOpaqueAttributes(ClassNode type) {
         if (type.attrs != null && !type.attrs.isEmpty()) return true;
         if (type.fields.stream().anyMatch(field -> field.attrs != null && !field.attrs.isEmpty())) return true;
         if (type.methods.stream().anyMatch(method -> method.attrs != null && !method.attrs.isEmpty())) return true;
@@ -52,7 +53,7 @@ public final class IntegerConstantPass implements BytecodePass {
         return node != null && ((node.visibleTypeAnnotations != null && !node.visibleTypeAnnotations.isEmpty()) ||
             (node.invisibleTypeAnnotations != null && !node.invisibleTypeAnnotations.isEmpty()));
     }
-    static Integer literal(AbstractInsnNode node) {
+    public static Integer literal(AbstractInsnNode node) {
         if (node == null) return null;
         int opcode = node.getOpcode();
         if (opcode >= ICONST_M1 && opcode <= ICONST_5) return opcode - ICONST_0;

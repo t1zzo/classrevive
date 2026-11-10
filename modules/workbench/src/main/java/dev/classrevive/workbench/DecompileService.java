@@ -68,7 +68,7 @@ public final class DecompileService {
 
     private static DecompilationJob job(DecompileRequest request, JobListener listener) {
         return new DecompilationJob().withEngineCache(request.engineCache()).withStubs(request.stubs())
-            .withDeobfuscation(request.deobfuscate()).withListener(listener);
+            .withDeobfuscation(request.deobfuscate()).withInferNamesLevel(request.inferNames()).withListener(listener);
     }
 
     /** A nested jar's base name as a portable file name ending in .jar. */

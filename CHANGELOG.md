@@ -4,6 +4,21 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Deobfuscation
+
+- General control-flow simplification (`transform --passes control-flow`), independent of any obfuscator: opaque predicates proved constant (constants, proved `static final` fields, intervals, parity, value numbers, pure calls), dispatcher unflattening, throw-to-goto rewriting, dead and unreachable code removal. Every change is audited and the JVM verifier links the result. See `docs/control-flow.md`.
+- Radon 2 support: detection rules and a static reversal pass (`radon`) for its number and string encryption, `invokedynamic` references and flow shapes, applied automatically by `decompile` on a HIGH diagnosis. Measured on a synthetic jar that reproduces Radon's documented shapes; runs of the real tool on the corpus are still pending. See `docs/radon-yguard.md`.
+- yGuard support: detection of its renaming, and `rename --yguard-log <yguardlog.xml[.gz]>` restores original names from its log where that is safe.
+
+### Renaming
+
+- Inferred names (`decompile --infer-names off|high|medium|low`, off by default): readable names for obfuscated classes, private fields, private methods and locals, guessed from bytecode evidence (`toString` and message labels, parameter names, property keys, types, getters and setters). Every name carries its rule, evidence and confidence and is listed in `inferred-names/`. See `docs/inferred-names.md`.
+
+### Desktop application
+
+- A Deobfuscation panel in the result overview: what was identified, what was reversed (with counts), what could not be recovered, and warnings, read from the reports.
+- Tidier overview, inspector and activity panels: clearer hierarchy, spacing, warnings and per-step progress.
+
 ### Engines and selection
 
 - Inferred stand-ins for missing libraries are typed from the original bytecode: supertypes between missing types and to JDK types (from values passed, stored, returned or cast where another type is expected), element types of collections, `Iterable` for types used in for-each loops, `throws` clauses of overridden methods, nested annotation kinds and functional interfaces used as lambda targets. Uncertain choices are reported. On a mod jar decompiled without its game libraries, whole-tree javac errors dropped from over 1,000 to 190 and per-file recovered method bodies rose from 5,274 to 8,576.
