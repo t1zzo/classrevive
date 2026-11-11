@@ -30,6 +30,7 @@ public final class ObfuscatorClassifier {
     public static Result classify(ObfuscationProfile profile) {
         var hypotheses = new ArrayList<Hypothesis>();
         zkm(profile, hypotheses);
+        zkmReflection(profile, hypotheses);
         allatori(profile, hypotheses);
         stringer(profile, hypotheses);
         dasho(profile, hypotheses);
@@ -80,6 +81,15 @@ public final class ObfuscatorClassifier {
         rule.add(rule.score > 0 && (p.has(Technique.SHORT_NAMES) || p.has(Technique.CASE_COLLISIONS)), 10, "short or case-colliding names");
         rule.subtract(p.metric("marker.allatori") > 0 || p.metric("marker.stringer_stacktrace") > 0, 30, "another obfuscator's marker present");
         rule.subtract(radonEvidence(p), 40, "Radon's injected decoders or invokedynamic shapes");
+        rule.subtract(p.metric("zkm.reflection_class") > 0, 40, "its reflection class is reported as Zelix KlassMaster 27");
+        rule.into(out);
+    }
+
+    /** Phase 2DM: Zelix KlassMaster 27's reflection obfuscation, the shape the {@code zkm} pass reverses. */
+    private static void zkmReflection(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("Zelix KlassMaster 27");
+        rule.add(p.metric("zkm.reflection_class") > 0, 85, "reflection class with (long, long) Method and Field getters and member finders");
+        rule.add(rule.score > 0 && p.metric("zkm.long_key_methods") > 0, 10, "methods XOR-ing a long parameter with a long constant: " + p.metric("zkm.long_key_methods"));
         rule.into(out);
     }
 

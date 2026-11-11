@@ -345,6 +345,16 @@ public final class ObfuscationProfile {
                     hit(Technique.STRING_ENCRYPTION, node.name, "string decryptor keyed by its caller's stack trace in " + clean(node.name) + "#" + clean(method.name));
                 }
             }
+            // Phase 2DM: Zelix KlassMaster 27's reflection class: (long, long) getters of a Method and a Field, and their finders.
+            boolean methodGetter = false, fieldGetter = false, finder = false;
+            for (var method : node.methods) {
+                if ((method.access & ACC_STATIC) == 0) continue;
+                if (method.desc.equals("(JJ)Ljava/lang/reflect/Method;")) methodGetter = true;
+                if (method.desc.equals("(JJ)Ljava/lang/reflect/Field;")) fieldGetter = true;
+                if (method.desc.equals("(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;I[Ljava/lang/Class;)Ljava/lang/reflect/Method;")
+                    || method.desc.equals("(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/reflect/Field;")) finder = true;
+            }
+            if (methodGetter && fieldGetter && finder) metric("zkm.reflection_class", 1);
             if (fnv && saltRetriever) metric("aids.salt_dispatcher", 1);
             if (bootstrap && decoder) metric("aids.reference_bootstrap", 1);
             if (sha && hashRetriever && resource) metric("aids.hash_integrity", 1);

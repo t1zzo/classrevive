@@ -595,6 +595,22 @@ class ObfuscationProfileTest {
         assertTrue(ObfuscatorClassifier.classify(profile).hypotheses().isEmpty());
     }
 
+    /** Phase 2DM: Zelix KlassMaster 27's reflection class, reported apart from the other Zelix shapes. */
+    @Test void zelixsReflectionClassIsRecognized() {
+        var reflection = bare("p", w -> {
+            method(w, ACC_PUBLIC | ACC_STATIC, "d", "(JJ)Ljava/lang/reflect/Method;", m -> { m.visitInsn(ACONST_NULL); m.visitInsn(ARETURN); });
+            method(w, ACC_PUBLIC | ACC_STATIC, "c", "(JJ)Ljava/lang/reflect/Field;", m -> { m.visitInsn(ACONST_NULL); m.visitInsn(ARETURN); });
+            method(w, ACC_PRIVATE | ACC_STATIC, "a", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/reflect/Field;", m -> { m.visitInsn(ACONST_NULL); m.visitInsn(ARETURN); });
+        });
+        var profile = profile(reflection);
+        assertEquals(1, profile.metric("zkm.reflection_class"));
+        var result = ObfuscatorClassifier.classify(profile);
+        assertEquals("Zelix KlassMaster 27", result.hypotheses().getFirst().obfuscator(), result.summary());
+        assertEquals("HIGH", result.hypotheses().getFirst().confidence(), result.summary());
+        // Getters without finders are no such class.
+        assertEquals(0, profile(bare("q", w -> method(w, ACC_STATIC, "d", "(JJ)Ljava/lang/reflect/Method;", m -> { m.visitInsn(ACONST_NULL); m.visitInsn(ARETURN); }))).metric("zkm.reflection_class"));
+    }
+
     /** Phase 2CZ: Aidsfuscator's generated classes: the FNV-1a salt dispatcher and the MutableCallSite reference bootstrap. */
     @Test void aidsfuscatorsDispatcherAndBootstrapAreRecognized() {
         var dispatcher = bare("a", w -> {

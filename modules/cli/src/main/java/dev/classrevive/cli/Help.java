@@ -38,7 +38,7 @@ final class Help {
                                           to decompile. Default: the one with the most classes that is not a library;
                                           the bundle's other jars are added to --classpath automatically.
               --engine-cache <folder>     Reuse engine outputs keyed by input and engine bytes.
-              --deobfuscate auto|off      Undo a recognized obfuscator (Skidfuscator, Aidsfuscator) before decompiling,
+              --deobfuscate auto|off      Undo a recognized obfuscator (Skidfuscator, Aidsfuscator, Radon, Zelix KlassMaster 27) before decompiling,
                                           when the diagnosis is HIGH confidence. Default: auto.
               --infer-names off|high|medium|low
                                           Guess readable names for short (obfuscated) classes, private fields/methods and
@@ -81,7 +81,8 @@ final class Help {
 
             Passes, in the order given: integer-constants (default), integer-unary, integer-branches, string-length,
             string-char-at, string-decryptor; skidfuscator (first in the list) reverses Skidfuscator 2.1.0,
-            aidsfuscator (first in the list) reverses Aidsfuscator 2.10.0, radon (first in the list) reverses Radon 2;
+            aidsfuscator (first in the list) reverses Aidsfuscator 2.10.0, radon (first in the list) reverses Radon 2,
+            zkm (first in the list) reverses Zelix KlassMaster 27;
             control-flow (whole jar, after them) decides opaque predicates, unflattens dispatchers and removes
             throw-gotos and dead code, independent of the obfuscator.
             The output is checked by the JVM verifier; nothing is executed.

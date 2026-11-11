@@ -33,9 +33,25 @@ final class AidsEvaluator implements Opcodes {
     private record Uninitialized(String type, int id) {}
     /** A {@code Throwable} created by the interpreted code: its stack trace is the interpreter's own frames. */
     private record Trace(StackTraceElement[] frames) {}
+    /** The value a {@code jsr} pushes: where its {@code ret} goes back to. */
+    private record ReturnAddress(int pc) {}
     private int allocations;
 
-    AidsEvaluator(ClassNode owner) { this.owner = owner; }
+    AidsEvaluator(ClassNode owner) { this(owner, null); }
+
+    /**
+     * Phase 2DM: calls the interpreter does not run itself, answered by the caller with a value of its own (Zelix
+     * KlassMaster's reflection: {@code Class.forName} and its member finders answered by symbolic references, nothing
+     * loaded). {@link #UNHANDLED} lets the call be refused as usual.
+     */
+    interface Hooks {
+        Object call(MethodInsnNode call, Object receiver, Object[] args);
+        /** Whether {@code value} (one of the hooks' own values) may be cast to {@code type}. */
+        default boolean castable(Object value, String type) { return false; }
+    }
+    static final Object UNHANDLED = new Object();
+    private final Hooks hooks;
+    AidsEvaluator(ClassNode owner, Hooks hooks) { this.owner = owner; this.hooks = hooks; }
 
     /**
      * Where the program's code starts: the first instruction of the statement holding the first instruction the
@@ -54,6 +70,31 @@ final class AidsEvaluator implements Opcodes {
         var frames = new ArrayDeque<StackTraceElement>();
         frames.push(new StackTraceElement(owner.name.replace('/', '.'), "<clinit>", null, -1));
         return (Stop) execute(clinit, new Object[Math.max(clinit.maxLocals, 1)], frames, fields, true, 0);
+    }
+
+    /**
+     * Phase 2DM: a copy of the static fields (arrays copied deeply), so a later call can start from this state again.
+     * Zelix KlassMaster's reflection tables decrypt their entries in place; a call with a wrong key must not corrupt them.
+     */
+    Map<String,Object> snapshot() {
+        var copy = new HashMap<String,Object>();
+        statics.forEach((key, value) -> copy.put(key, deepCopy(value)));
+        return copy;
+    }
+    void restore(Map<String,Object> snapshot) {
+        statics.clear();
+        snapshot.forEach((key, value) -> statics.put(key, deepCopy(value)));
+    }
+    private static Object deepCopy(Object value) {
+        if (value instanceof Object[] array) {
+            var copy = array.clone();
+            for (int i = 0; i < copy.length; i++) copy[i] = deepCopy(copy[i]);
+            return copy;
+        }
+        return switch (value) {
+            case int[] a -> a.clone(); case long[] a -> a.clone(); case char[] a -> a.clone(); case byte[] a -> a.clone(); case short[] a -> a.clone();
+            case null, default -> value;
+        };
     }
 
     /** Calls a static method of the owner on constant arguments, as if from {@code callerMethod} of the owner. */
@@ -120,11 +161,14 @@ final class AidsEvaluator implements Opcodes {
                     else if (op >= ISTORE && op <= ASTORE) {
                         if (op == LSTORE || op == DSTORE) stack.removeLast();
                         locals[var.var] = stack.removeLast();
-                    } else throw new Refusal("ret");
+                    } else if (locals[var.var] instanceof ReturnAddress address) next = address.pc();
+                    else throw new Refusal("ret without a return address");
                 }
                 case IincInsnNode inc -> locals[inc.var] = intValue(locals[inc.var]) + inc.incr;
                 case JumpInsnNode jump -> {
-                    if (branch(op, stack)) next = index.get(jump.label);
+                    // Phase 2DM: Zelix KlassMaster writes its initializers with subroutines (class files before Java 6).
+                    if (op == JSR) { stack.add(new ReturnAddress(pc + 1)); next = index.get(jump.label); }
+                    else if (branch(op, stack)) next = index.get(jump.label);
                 }
                 case TableSwitchInsnNode table -> {
                     int key = intValue(stack.removeLast());
@@ -135,6 +179,7 @@ final class AidsEvaluator implements Opcodes {
                     next = index.get(at >= 0 ? lookup.labels.get(at) : lookup.dflt);
                 }
                 case FieldInsnNode field -> {
+                    if (op == GETSTATIC && PRIMITIVES.containsKey(field.owner + "." + field.name)) { stack.add(PRIMITIVES.get(field.owner + "." + field.name)); break; }
                     if (!field.owner.equals(owner.name) || op == GETFIELD || op == PUTFIELD) throw new Refusal("field " + field.owner + "." + field.name);
                     String key = field.name + ":" + field.desc;
                     if (op == GETSTATIC) {
@@ -155,11 +200,22 @@ final class AidsEvaluator implements Opcodes {
                         case ANEWARRAY -> {
                             int length = intValue(stack.removeLast());
                             if (length < 0 || length > MAX_ARRAY) throw new Refusal("array size");
-                            stack.add(type.desc.equals("java/lang/String") ? new String[length] : type.desc.equals("java/lang/StackTraceElement") ? new StackTraceElement[length] : new Object[length]);
+                            stack.add(switch (type.desc) {
+                                case "java/lang/String" -> new String[length];
+                                case "java/lang/StackTraceElement" -> new StackTraceElement[length];
+                                case "java/lang/Integer" -> new Integer[length];
+                                case "java/lang/Long" -> new Long[length];
+                                default -> new Object[length];
+                            });
                         }
                         case CHECKCAST -> {
                             Object value = stack.getLast();
-                            if (value != null && !castable(value, type.desc)) throw new Refusal("checkcast " + type.desc);
+                            if (value != null && !castable(value, type.desc) && (hooks == null || !hooks.castable(value, type.desc)))
+                                throw new Refusal("checkcast " + type.desc);
+                        }
+                        case INSTANCEOF -> {
+                            Object value = stack.removeLast();
+                            stack.add(value != null && (castable(value, type.desc) || hooks != null && hooks.castable(value, type.desc)) ? 1 : 0);
                         }
                         default -> throw new Refusal("type op " + op);
                     }
@@ -172,12 +228,46 @@ final class AidsEvaluator implements Opcodes {
     }
 
     /** Whether an initializer instruction is no longer the obfuscator's (the program's own code starts there). */
+    /** Phase 2DM: the JDK's primitive class objects ({@code int.class} as {@code Integer.TYPE}), JDK constants, not target code. */
+    static final Map<String,Class<?>> PRIMITIVES = Map.of("java/lang/Boolean.TYPE", boolean.class, "java/lang/Byte.TYPE", byte.class,
+        "java/lang/Character.TYPE", char.class, "java/lang/Short.TYPE", short.class, "java/lang/Integer.TYPE", int.class,
+        "java/lang/Long.TYPE", long.class, "java/lang/Float.TYPE", float.class, "java/lang/Double.TYPE", double.class, "java/lang/Void.TYPE", void.class);
+
     private boolean foreign(AbstractInsnNode insn, Set<String> fields) {
+        if (insn instanceof FieldInsnNode field && field.getOpcode() == GETSTATIC && PRIMITIVES.containsKey(field.owner + "." + field.name)) return false;
         if (insn instanceof FieldInsnNode field) return !field.owner.equals(owner.name) || !fields.contains(field.name + ":" + field.desc);
+        if (insn instanceof MethodInsnNode call && call.getOpcode() == INVOKESTATIC && call.owner.equals(owner.name)) return !evaluable(call, fields, new HashSet<>());
         if (insn instanceof MethodInsnNode call) return !allowed(call);
         if (insn instanceof TypeInsnNode type && type.getOpcode() == NEW) return !ALLOCATABLE.contains(type.desc);
         int op = insn.getOpcode();
         return op == ATHROW || op == MONITORENTER || op == MONITOREXIT || insn instanceof InvokeDynamicInsnNode || insn instanceof MultiANewArrayInsnNode;
+    }
+
+    /**
+     * Phase 2DM: whether a static method of the owner, called from the initializer, only does what this interpreter runs:
+     * allowlisted calls, its own class's fields of the initializer, the JDK's primitive classes, and other such methods
+     * (Zelix KlassMaster's initializers fill their tables through helpers).
+     */
+    private boolean evaluable(MethodInsnNode call, Set<String> fields, Set<String> seen) {
+        String key = call.name + call.desc;
+        if (seen.contains(key)) return true; // recursion: judged by the first visit
+        if (seen.size() >= 16) return false;
+        seen.add(key);
+        MethodNode target = null;
+        for (var method : owner.methods) if (method.name.equals(call.name) && method.desc.equals(call.desc)) target = method;
+        if (target == null || (target.access & ACC_STATIC) == 0 || target.instructions.size() == 0 || !target.tryCatchBlocks.isEmpty()) return false;
+        for (var insn : target.instructions) {
+            if (insn instanceof MethodInsnNode inner) {
+                if (inner.getOpcode() == INVOKESTATIC && inner.owner.equals(owner.name)) { if (!evaluable(inner, fields, seen)) return false; }
+                else if (!allowed(inner)) return false;
+            } else if (insn instanceof FieldInsnNode field) {
+                if (field.getOpcode() == GETSTATIC && PRIMITIVES.containsKey(field.owner + "." + field.name)) continue;
+                if (!field.owner.equals(owner.name) || !fields.contains(field.name + ":" + field.desc)) return false;
+            } else if (insn instanceof TypeInsnNode type && type.getOpcode() == NEW && !ALLOCATABLE.contains(type.desc)) return false;
+            else if (insn instanceof InvokeDynamicInsnNode || insn instanceof MultiANewArrayInsnNode || insn.getOpcode() == ATHROW
+                || insn.getOpcode() == MONITORENTER || insn.getOpcode() == MONITOREXIT) return false;
+        }
+        return true;
     }
 
     private static final Set<String> ALLOCATABLE = Set.of("java/lang/String", "java/lang/Throwable", "javax/crypto/spec/IvParameterSpec",
@@ -186,7 +276,8 @@ final class AidsEvaluator implements Opcodes {
     private static boolean allowed(MethodInsnNode call) {
         return switch (call.owner) {
             case "java/lang/String" -> Set.of("charAt(I)C", "getBytes(Ljava/lang/String;)[B", "hashCode()I", "intern()Ljava/lang/String;", "length()I",
-                "substring(II)Ljava/lang/String;", "toCharArray()[C", "<init>([C)V", "<init>([BLjava/lang/String;)V", "<init>([B)V").contains(call.name + call.desc);
+                "substring(II)Ljava/lang/String;", "toCharArray()[C", "<init>([C)V", "<init>([BLjava/lang/String;)V", "<init>([B)V",
+                "indexOf(I)I", "indexOf(II)I", "substring(I)Ljava/lang/String;", "equals(Ljava/lang/Object;)Z").contains(call.name + call.desc);
             case "java/lang/Throwable" -> Set.of("<init>()V", "getStackTrace()[Ljava/lang/StackTraceElement;").contains(call.name + call.desc);
             case "java/lang/StackTraceElement" -> Set.of("getClassName()Ljava/lang/String;", "getMethodName()Ljava/lang/String;").contains(call.name + call.desc);
             case "java/util/Base64" -> (call.name + call.desc).equals("getDecoder()Ljava/util/Base64$Decoder;");
@@ -195,6 +286,9 @@ final class AidsEvaluator implements Opcodes {
                 "init(ILjava/security/Key;Ljava/security/spec/AlgorithmParameterSpec;)V").contains(call.name + call.desc);
             case "javax/crypto/spec/SecretKeySpec" -> (call.name + call.desc).equals("<init>([BLjava/lang/String;)V");
             case "javax/crypto/spec/IvParameterSpec" -> (call.name + call.desc).equals("<init>([B)V");
+            // Phase 2DM: Zelix KlassMaster's number decryptors cache boxed values.
+            case "java/lang/Integer" -> Set.of("valueOf(I)Ljava/lang/Integer;", "intValue()I").contains(call.name + call.desc);
+            case "java/lang/Long" -> Set.of("valueOf(J)Ljava/lang/Long;", "longValue()J", "parseLong(Ljava/lang/String;I)J").contains(call.name + call.desc);
             default -> false;
         };
     }
@@ -203,7 +297,12 @@ final class AidsEvaluator implements Opcodes {
         var types = Type.getArgumentTypes(call.desc);
         var args = new Object[types.length];
         for (int k = types.length - 1; k >= 0; k--) { if (types[k].getSize() == 2) stack.removeLast(); args[k] = stack.removeLast(); }
-        // A static helper of the owner (Aidsfuscator's decryptors call none, but its polymorphic masks may).
+        // A static helper of the owner (Aidsfuscator's decryptors call none, but its polymorphic masks may); a hook may
+        // answer for one first (Zelix KlassMaster's member finders).
+        if (call.getOpcode() == INVOKESTATIC && call.owner.equals(owner.name) && hooks != null) {
+            Object answer = hooks.call(call, null, args);
+            if (answer != UNHANDLED) { push(stack, answer, Type.getReturnType(call.desc)); return; }
+        }
         if (call.getOpcode() == INVOKESTATIC && call.owner.equals(owner.name)) {
             MethodNode target = null;
             for (var method : owner.methods) if (method.name.equals(call.name) && method.desc.equals(call.desc)) target = method;
@@ -211,6 +310,12 @@ final class AidsEvaluator implements Opcodes {
             Object result = invoke(target, args, frames, depth + 1);
             push(stack, result, Type.getReturnType(call.desc));
             return;
+        }
+        if (hooks != null && !allowed(call)) {
+            Object receiver = call.getOpcode() == INVOKESTATIC || call.name.equals("<init>") ? null : stack.removeLast();
+            Object answer = hooks.call(call, receiver, args);
+            if (answer != UNHANDLED) { push(stack, answer, Type.getReturnType(call.desc)); return; }
+            if (receiver != null) stack.add(receiver);
         }
         if (!allowed(call)) throw new Refusal("call " + call.owner + "." + call.name + call.desc);
         if (call.name.equals("<init>")) {
@@ -229,7 +334,12 @@ final class AidsEvaluator implements Opcodes {
                 case "java/lang/String.hashCode" -> receiver.hashCode();
                 case "java/lang/String.intern" -> receiver;
                 case "java/lang/String.length" -> ((String) receiver).length();
-                case "java/lang/String.substring" -> ((String) receiver).substring(intValue(args[0]), intValue(args[1]));
+                case "java/lang/String.substring" -> args.length == 1 ? ((String) receiver).substring(intValue(args[0]))
+                    : ((String) receiver).substring(intValue(args[0]), intValue(args[1]));
+                case "java/lang/String.indexOf" -> args.length == 1 ? ((String) receiver).indexOf(intValue(args[0]))
+                    : ((String) receiver).indexOf(intValue(args[0]), intValue(args[1]));
+                case "java/lang/String.equals" -> receiver.equals(args[0]) ? 1 : 0;
+                case "java/lang/Long.parseLong" -> Long.parseLong((String) args[0], intValue(args[1]));
                 case "java/lang/String.toCharArray" -> ((String) receiver).toCharArray();
                 case "java/lang/Throwable.getStackTrace" -> ((Trace) receiver).frames().clone();
                 case "java/lang/StackTraceElement.getClassName" -> ((StackTraceElement) receiver).getClassName();
@@ -245,6 +355,10 @@ final class AidsEvaluator implements Opcodes {
                     yield null;
                 }
                 case "javax/crypto/Cipher.doFinal" -> ((javax.crypto.Cipher) receiver).doFinal((byte[]) args[0]);
+                // Ints and longs are already boxed values here: boxing and unboxing keep them.
+                case "java/lang/Integer.valueOf", "java/lang/Long.valueOf" -> args[0];
+                case "java/lang/Integer.intValue" -> intValue(receiver);
+                case "java/lang/Long.longValue" -> longValue(receiver);
                 default -> throw new Refusal("call " + call.name);
             };
         } catch (Refusal refusal) {
@@ -289,6 +403,14 @@ final class AidsEvaluator implements Opcodes {
             case "java/lang/String" -> value instanceof String;
             case "[Ljava/lang/String;" -> value instanceof String[];
             case "[Ljava/lang/Object;" -> value instanceof Object[];
+            case "java/lang/Integer" -> value instanceof Integer;
+            case "java/lang/Long" -> value instanceof Long;
+            case "[Ljava/lang/Integer;" -> value instanceof Integer[];
+            case "[Ljava/lang/Long;" -> value instanceof Long[];
+            case "[J" -> value instanceof long[];
+            case "java/lang/Class" -> value instanceof Class<?>;
+            case "[Ljava/lang/Class;" -> value instanceof Object[];
+            case "[I" -> value instanceof int[];
             default -> false;
         };
     }
@@ -350,6 +472,23 @@ final class AidsEvaluator implements Opcodes {
             case LSHL, LSHR, LUSHR -> {
                 int s = intValue(stack.removeLast()); stack.removeLast(); long a = longValue(stack.removeLast());
                 stack.add(switch (op) { case LSHL -> a << s; case LSHR -> a >> s; default -> a >>> s; }); stack.add(null);
+            }
+            case LCMP -> {
+                stack.removeLast(); long b = longValue(stack.removeLast()); stack.removeLast(); long a = longValue(stack.removeLast());
+                stack.add(Long.compare(a, b));
+            }
+            case LNEG -> { stack.removeLast(); long a = longValue(stack.removeLast()); stack.add(-a); stack.add(null); }
+            case LALOAD -> {
+                int i = intValue(stack.removeLast()); Object array = array(stack.removeLast());
+                check(array, i);
+                if (!(array instanceof long[] a)) throw new Refusal("array load");
+                stack.add(a[i]); stack.add(null);
+            }
+            case LASTORE -> {
+                stack.removeLast(); long value = longValue(stack.removeLast()); int i = intValue(stack.removeLast()); Object array = array(stack.removeLast());
+                check(array, i);
+                if (!(array instanceof long[] a)) throw new Refusal("array store");
+                a[i] = value;
             }
             case INEG -> stack.add(-intValue(stack.removeLast()));
             case I2B -> stack.add((int) (byte) intValue(stack.removeLast()));

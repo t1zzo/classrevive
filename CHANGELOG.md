@@ -2,6 +2,16 @@
 
 All notable changes to ClassRevive are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Before 1.0.0, minor versions may change command options and report fields; report schema changes stay additive within `schema_version` 1.
 
+## [Unreleased]
+
+### Deobfuscation
+
+- Zelix KlassMaster 27 support: detection and a static reversal pass (`zkm`), applied automatically by `decompile` on a HIGH diagnosis. Method keys are propagated across the jar, strings and numbers decrypted, reflective accesses written back as direct instructions, parameters packed in `Object[]` restored without their keys, opaque flags folded under a proof and decrypting initializers removed. Protected methods nothing calls have no key in the jar and stay as they are. See `docs/zelix-klassmaster.md`.
+
+### Engines and selection
+
+- A new source repair puts back the cast a decompiler drops after a raw `toArray(T[])`.
+
 ## [0.2.0] - 2026-11-10
 
 ### Deobfuscation

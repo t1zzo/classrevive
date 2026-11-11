@@ -30,6 +30,16 @@ class SourceRepairTest {
         }
         return root;
     }
+    /** Phase 2DM: a raw {@code toArray(T[])} returns {@code Object[]}; the {@code checkcast} a decompiler dropped comes back. */
+    @Test void aRawToArrayGetsItsCastBack() throws Exception {
+        Path broken = sources("raw-to-array", Map.of("p/Raw.java",
+            "package p; import java.util.*; final class Raw {\n  String[] all(List list) { return list.toArray(new String[0]); }\n}\n"));
+        var proposal = new SourceRepair().propose(broken, dir.resolve("repair-raw"), ORIGINALS, Duration.ofSeconds(60), List.of());
+        assertEquals(List.of(), proposal.unrepaired());
+        assertEquals(List.of("raw-to-array"), proposal.edits().stream().map(SourceRepair.Edit::rule).toList());
+        assertTrue(Files.readString(proposal.files().get("p/Raw.java")).contains("return (java.lang.String[])list.toArray(new String[0]);"));
+    }
+
     /** The candidate with the proposal's repaired files on top, as selection would assemble it. */
     Path apply(Path sources, SourceRepair.Proposal proposal) throws IOException {
         Path merged = dir.resolve(sources.getFileName() + "-merged");

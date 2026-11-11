@@ -19,7 +19,7 @@ public final class SourceRepair {
      */
     public static final String ENVIRONMENT_STUB = "environment-stub";
     /** Rules the worker may report; anything else in its output is rejected. */
-    public static final Set<String> RULES = Set.of("raw-cast-to-target", "raw-argument", "raw-diamond", "raw-type-argument",
+    public static final Set<String> RULES = Set.of("raw-to-array", "raw-cast-to-target", "raw-argument", "raw-diamond", "raw-type-argument",
         "drop-final-local", "capture-copy", "renamed-local", "guard-initializer", "boolean-literal-as-int", "drop-unreachable-jump", "drop-object-cast", "raw-cast-type",
         "iterable-cast", "functional-cast", "type-witness", "type-variable-cast", "lambda-cast", "shadowed-parameter", "receiver-witness", "creation-type-argument",
         "hoist-local-class", ENVIRONMENT_STUB);
