@@ -88,6 +88,7 @@ class AutoDeobfuscationTest {
         assertEquals("aidsfuscator", AutoDeobfuscation.PASSES.get(AutoDeobfuscation.candidate(
             new ObfuscatorClassifier.Result("SUGGESTED", List.of(aids))).orElseThrow().obfuscator()));
         // Phase 2DK
+        assertEquals("zkm", AutoDeobfuscation.PASSES.get("Zelix KlassMaster 27"));
         var radon = new ObfuscatorClassifier.Hypothesis("Radon", 100, "HIGH", List.of());
         assertEquals("radon", AutoDeobfuscation.PASSES.get(AutoDeobfuscation.candidate(
             new ObfuscatorClassifier.Result("SUGGESTED", List.of(radon))).orElseThrow().obfuscator()));

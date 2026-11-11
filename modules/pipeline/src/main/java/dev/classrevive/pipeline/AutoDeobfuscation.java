@@ -25,7 +25,8 @@ public final class AutoDeobfuscation {
         "Skidfuscator", dev.classrevive.transforms.skid.SkidfuscatorReverser.ID,
         "Aidsfuscator", dev.classrevive.transforms.skid.AidsfuscatorReverser.ID,
         // Phase 2DK
-        "Radon", dev.classrevive.transforms.radon.RadonReverser.ID);
+        "Radon", dev.classrevive.transforms.radon.RadonReverser.ID,
+        "Zelix KlassMaster 27", dev.classrevive.transforms.skid.ZkmReverser.ID);
     /** Verifier errors that mean the bytecode itself is invalid, as opposed to a class it refers to being absent. */
     static final Set<String> BYTECODE_ERRORS = Set.of("java.lang.VerifyError", "java.lang.ClassFormatError",
         "java.lang.UnsupportedClassVersionError", "java.lang.ClassCircularityError", "java.lang.IncompatibleClassChangeError",

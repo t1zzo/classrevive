@@ -8,7 +8,7 @@ public final class BuiltinPasses {
     /** Phase 2CN: passes that need the whole jar at once; they run before the per-class passes, in the order given. */
     public static final Set<String> JAR_PASSES = Set.of(dev.classrevive.transforms.skid.SkidfuscatorReverser.ID,
         dev.classrevive.transforms.skid.AidsfuscatorReverser.ID, dev.classrevive.transforms.radon.RadonReverser.ID,
-        dev.classrevive.transforms.flow.ControlFlowPass.ID);
+        dev.classrevive.transforms.skid.ZkmReverser.ID, dev.classrevive.transforms.flow.ControlFlowPass.ID);
     private BuiltinPasses() {}
     /** The whole-jar passes of a selection, in order; they must come before every per-class pass. */
     public static List<String> jarPasses(String selection) {

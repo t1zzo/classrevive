@@ -1126,6 +1126,19 @@ public final class SourceRepairWorker {
     }
 
     /** {@code expr} whose type cannot be assigned to its target: an upcast to the target's raw type, e.g. {@code (TypeAdapter)expr}. */
+    /**
+     * Phase 2DM: {@code return list.toArray(new String[n]);} on a raw collection. Raw, {@code T[] toArray(T[])} returns
+     * {@code Object[]}; a decompiler that reads the generic signature drops the {@code checkcast} the bytecode has. The
+     * cast to the target writes it back; the argument must be assignable to the target, as the generic call implied.
+     */
+    private boolean rawToArray(TreePath path, ExpressionTree expression, TypeMirror target) {
+        if (target == null || target.getKind() != TypeKind.ARRAY || !(expression instanceof MethodInvocationTree call) || call.getArguments().size() != 1) return false;
+        if (!(trees.getElement(path) instanceof ExecutableElement method) || !method.getSimpleName().contentEquals("toArray")
+            || !(method.getReturnType() instanceof ArrayType result) || result.getComponentType().getKind() != TypeKind.TYPEVAR) return false;
+        TypeMirror argument = trees.getTypeMirror(new TreePath(path, call.getArguments().getFirst()));
+        return argument != null && argument.getKind() == TypeKind.ARRAY && types.isAssignable(argument, target);
+    }
+
     private String rawCastToTarget(TreePath path, Diagnostic<? extends JavaFileObject> diagnostic, List<Edit> edits) {
         // javac reports a failed diamond at the created type; the expression is the creation around it.
         if (path.getParentPath().getLeaf() instanceof NewClassTree created && created.getIdentifier() == path.getLeaf()) path = path.getParentPath();
@@ -1135,6 +1148,7 @@ public final class SourceRepairWorker {
         TypeMirror target = targetType(path);
         if (target == null) target = argumentTypeVariable(path);
         if (target instanceof TypeVariable variable) return typeVariableCast(path, expression, variable, diagnostic, edits);
+        if (rawToArray(path, expression, target)) return rawCast(expression, target, "raw-to-array", diagnostic, edits);
         if (target != null && (!(target instanceof DeclaredType declared) || declared.getTypeArguments().isEmpty())) return "target-not-parameterized";
         TypeMirror found = expression instanceof NewClassTree created ? classType(path, created.getIdentifier()) : trees.getTypeMirror(path);
         // A branch of a conditional that failed attribution may carry an error type; a variable still has its declared one.
@@ -1219,7 +1233,7 @@ public final class SourceRepairWorker {
     }
 
     private String rawCast(ExpressionTree expression, TypeMirror raw, String rule, Diagnostic<? extends JavaFileObject> diagnostic, List<Edit> edits) {
-        String name = qualifiedName(raw);
+        String name = raw.getKind() == TypeKind.ARRAY ? sourceName(raw) : qualifiedName(raw);
         if (name == null) return "type-not-nameable";
         String source = source(expression);
         edits.add(new Edit(start(expression), end(expression), "(" + name + ")" + (primary(expression) ? source : "(" + source + ")"), rule, diagnostic));
