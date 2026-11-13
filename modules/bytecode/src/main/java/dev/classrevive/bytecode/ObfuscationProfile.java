@@ -256,8 +256,18 @@ public final class ObfuscationProfile {
             return new String(chars);
         }
 
+        /** BytecodeVM's VM entry: {@code execute(codeId or codeIds, receiver, args[, integrity key])}. */
+        static final Set<String> BYTECODE_VM_EXECUTE = Set.of(
+            "(ILjava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", "([ILjava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;",
+            "(ILjava/lang/Object;[Ljava/lang/Object;I)Ljava/lang/Object;", "([ILjava/lang/Object;[Ljava/lang/Object;I)Ljava/lang/Object;");
+
         public void addResource(String name, long size) {
             String lower = name.toLowerCase(Locale.ROOT);
+            // j2cc: every target's library concatenated in natives.bin, offsets and keys in relocationInfo.dat.
+            if (name.equals("j2cc/natives.bin") || name.equals("j2cc/relocationInfo.dat")) {
+                metric("j2cc.resources", 1);
+                sample(Technique.NATIVE_LAYER, "j2cc resource " + clean(name) + (size >= 0 ? " (" + size + " bytes)" : ""));
+            }
             if (lower.endsWith(".dll") || lower.endsWith(".so") || lower.endsWith(".dylib") || lower.endsWith(".jnilib")) {
                 metric("native.libraries", 1);
                 sample(Technique.NATIVE_LAYER, "library " + clean(name) + (size >= 0 ? " (" + size + " bytes)" : ""));
@@ -297,6 +307,127 @@ public final class ObfuscationProfile {
             skidfuscator(node);
             aidsfuscator(node);
             radon(node);
+            nativeTranspilers(node);
+            bytecodeVm(node);
+            alpheratz(node);
+        }
+
+        /**
+         * Java-to-native transpilers. The native-obfuscator family (radioegor146/native-obfuscator and forks such as
+         * native-obfuscator-plus) adds a loader with a static native {@code registerNativesForClass(int, Class)}, which each
+         * processed {@code <clinit>} calls with the class's index before a native initializer; processed classes name their
+         * C++ file in {@code SourceFile}. j2cc adds a loader with native {@code bootstrap(byte[])} and
+         * {@code initClass(Class)}, called through {@code doInit(Class)}, and its method-handle call obfuscation leaves a
+         * {@code j2$mh} table and filler. Package names are configurable; these shapes are not.
+         */
+        private void nativeTranspilers(ClassNode node) {
+            boolean register = false, bootstrap = false, initClass = false, doInit = false;
+            for (var method : node.methods) {
+                boolean nativeStatic = (method.access & (ACC_NATIVE | ACC_STATIC)) == (ACC_NATIVE | ACC_STATIC);
+                if (nativeStatic && method.desc.equals("(ILjava/lang/Class;)V") && method.name.equals("registerNativesForClass")) register = true;
+                if (nativeStatic && method.desc.equals("([B)V")) bootstrap = true;
+                if (nativeStatic && method.desc.equals("(Ljava/lang/Class;)V")) initClass = true;
+                if ((method.access & (ACC_STATIC | ACC_NATIVE)) == ACC_STATIC && method.desc.equals("(Ljava/lang/Class;)V")) doInit = true;
+                if (method.name.equals("j2$mh") && method.desc.equals("(I)Ljava/lang/invoke/MethodHandle;")) metric("j2cc.mh_fillers", 1);
+            }
+            if (register) { metric("natobf.loaders", 1); hit(Technique.NATIVE_LAYER, node.name, "native-obfuscator loader " + clean(node.name)); }
+            if (bootstrap && initClass && doInit) { metric("j2cc.loaders", 1); hit(Technique.NATIVE_LAYER, node.name, "j2cc loader " + clean(node.name)); }
+            for (var field : node.fields)
+                if (field.name.equals("j2$mh") && field.desc.equals("[Ljava/lang/invoke/MethodHandle;")) metric("j2cc.mh_tables", 1);
+            if (node.sourceFile != null && node.sourceFile.endsWith(".cpp")) metric("natobf.cpp_sourcefiles", 1);
+            for (var method : node.methods) {
+                for (var insn : method.instructions) {
+                    if (method.name.equals("<clinit>") && insn instanceof MethodInsnNode call && call.getOpcode() == INVOKESTATIC) {
+                        if (call.name.equals("registerNativesForClass") && call.desc.equals("(ILjava/lang/Class;)V")) metric("natobf.registering_classes", 1);
+                        if (call.name.equals("doInit") && call.desc.equals("(Ljava/lang/Class;)V")) metric("j2cc.initializing_classes", 1);
+                    }
+                    if (!method.name.equals("j2$mh") && insn instanceof FieldInsnNode get && get.getOpcode() == GETSTATIC && get.name.equals("j2$mh")
+                        && get.desc.equals("[Ljava/lang/invoke/MethodHandle;")) metric("j2cc.mh_call_sites", 1);
+                }
+            }
+        }
+
+        /**
+         * BytecodeVM (NHCM-dev/BytecodeVM, MIT): a virtualized method's body becomes {@code Object[] args = {params...};}
+         * then a static {@code execute(codeId or int[] codeIds, Object receiver, Object[] args[, int integrityKey])} of the
+         * generated VM class, whose code pool is a {@code $CodePool} class next to it.
+         */
+        private void bytecodeVm(ClassNode node) {
+            if (node.name.endsWith("$CodePool")) metric("bvm.code_pools", 1);
+            for (var method : node.methods) {
+                if ((method.access & ACC_STATIC) != 0 && BYTECODE_VM_EXECUTE.contains(method.desc)) metric("bvm.vm_classes", 1);
+                for (var insn : method.instructions)
+                    if (insn instanceof MethodInsnNode call && call.getOpcode() == INVOKESTATIC && BYTECODE_VM_EXECUTE.contains(call.desc)
+                        && !call.owner.equals(node.name)) { metric("bvm.stub_methods", 1); break; }
+            }
+        }
+
+        /**
+         * alpheratzteam/obfuscator (MIT): numbers as {@code ldc c; ldc f; getstatic T:[I; ldc i; iaload; imul; ixor} over a
+         * per-class table (and its double, float and long tables), booleans as a comparison of two table entries, gotos as
+         * {@code getstatic F:Z; ifeq L; aconst_null; athrow} on a {@code static final boolean} nothing sets, trash predicates
+         * ({@code "ab".equals("ab")}, {@code Float.isNaN(c)}) in front of a branch, every method declaring the same unrelated
+         * exceptions, and an anti-debug check of the JVM's input arguments.
+         */
+        private void alpheratz(ClassNode node) {
+            var unsetBooleans = new HashSet<String>();
+            for (var field : node.fields)
+                if ((field.access & (ACC_STATIC | ACC_FINAL)) == (ACC_STATIC | ACC_FINAL) && field.desc.equals("Z") && field.value == null) unsetBooleans.add(field.name);
+            for (var method : node.methods)
+                for (var insn : method.instructions)
+                    if (insn instanceof FieldInsnNode put && put.getOpcode() == PUTSTATIC && put.owner.equals(node.name)) unsetBooleans.remove(put.name);
+            for (var method : node.methods) {
+                if (method.exceptions != null && method.exceptions.contains("java/nio/BufferUnderflowException")
+                    && method.exceptions.contains("java/lang/annotation/AnnotationTypeMismatchException")) metric("alph.trash_throws", 1);
+                boolean mx = false, agent = false;
+                for (var insn : method.instructions) {
+                    var next = real(insn.getNext());
+                    if (insn instanceof MethodInsnNode call && call.owner.equals("java/lang/management/ManagementFactory") && call.name.equals("getRuntimeMXBean")) mx = true;
+                    if (insn instanceof LdcInsnNode ldc && ("-Xrunjdwp:".equals(ldc.cst) || "-agentlib".equals(ldc.cst))) agent = true;
+                    if (insn instanceof FieldInsnNode get && get.getOpcode() == GETSTATIC && get.owner.equals(node.name)) {
+                        // Number: getstatic T:[I; ldc i; iaload; imul; ixor (double: daload; dmul; ddiv, and so on).
+                        var load = next == null ? null : real(next.getNext());
+                        var first = load == null ? null : real(load.getNext());
+                        var second = first == null ? null : real(first.getNext());
+                        if (Set.of("[I", "[J", "[F", "[D").contains(get.desc) && constantInt(next) && load != null && first != null && second != null
+                            && load.getOpcode() >= IALOAD && load.getOpcode() <= DALOAD
+                            && Set.of(IMUL, LMUL, FMUL, DMUL).contains(first.getOpcode()) && Set.of(IXOR, LXOR, FDIV, DDIV).contains(second.getOpcode()))
+                            metric("alph.number_sites", 1);
+                        // Boolean: getstatic T:[I; ldc a; iaload; getstatic T:[I; ldc b; iaload; if_icmpne
+                        if (get.desc.equals("[I") && constantInt(next) && load != null && load.getOpcode() == IALOAD
+                            && first instanceof FieldInsnNode again && again.name.equals(get.name) && constantInt(second)) {
+                            var load2 = real(second.getNext());
+                            var compare = load2 == null ? null : real(load2.getNext());
+                            if (load2 != null && load2.getOpcode() == IALOAD && compare != null && compare.getOpcode() == IF_ICMPNE) metric("alph.boolean_sites", 1);
+                        }
+                        // Flow: getstatic F:Z (never set); ifeq L; aconst_null; athrow
+                        if (unsetBooleans.contains(get.name) && get.desc.equals("Z") && next != null && next.getOpcode() == IFEQ) {
+                            var nil = real(next.getNext());
+                            var thrown = nil == null ? null : real(nil.getNext());
+                            if (nil != null && nil.getOpcode() == ACONST_NULL && thrown != null && thrown.getOpcode() == ATHROW) metric("alph.flow_traps", 1);
+                        }
+                    }
+                    // Trash predicate: ldc "x"; ldc "y"; String.equals, or ldc c; Float/Double.isNaN/isInfinite; then a branch.
+                    if (insn instanceof MethodInsnNode call && next instanceof JumpInsnNode) {
+                        var previous = insn.getPrevious();
+                        boolean strings = call.owner.equals("java/lang/String") && call.name.equals("equals")
+                            && previous instanceof LdcInsnNode a && a.cst instanceof String && previous.getPrevious() instanceof LdcInsnNode b && b.cst instanceof String;
+                        boolean floats = (call.owner.equals("java/lang/Float") || call.owner.equals("java/lang/Double"))
+                            && (call.name.equals("isNaN") || call.name.equals("isInfinite")) && previous instanceof LdcInsnNode;
+                        if (strings || floats) metric("alph.trash_predicates", 1);
+                    }
+                }
+                if (mx && agent) metric("alph.anti_debug", 1);
+            }
+        }
+
+        private static AbstractInsnNode real(AbstractInsnNode insn) {
+            while (insn != null && insn.getOpcode() < 0) insn = insn.getNext();
+            return insn;
+        }
+        private static boolean constantInt(AbstractInsnNode insn) {
+            return insn instanceof LdcInsnNode ldc && ldc.cst instanceof Integer || insn instanceof IntInsnNode push && push.getOpcode() != NEWARRAY
+                || insn != null && insn.getOpcode() >= ICONST_M1 && insn.getOpcode() <= ICONST_5;
         }
 
         /**
