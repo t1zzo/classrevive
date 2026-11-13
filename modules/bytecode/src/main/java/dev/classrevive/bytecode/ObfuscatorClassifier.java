@@ -40,6 +40,10 @@ public final class ObfuscatorClassifier {
         aidsfuscator(profile, hypotheses);
         radon(profile, hypotheses);
         yguard(profile, hypotheses);
+        nativeObfuscator(profile, hypotheses);
+        j2cc(profile, hypotheses);
+        bytecodeVm(profile, hypotheses);
+        alpheratz(profile, hypotheses);
         hypotheses.sort(Comparator.comparingInt(Hypothesis::score).reversed().thenComparing(Hypothesis::obfuscator));
         String verdict = !hypotheses.isEmpty() ? "SUGGESTED" : profile.techniques().isEmpty() ? "NONE" : "UNKNOWN";
         return new Result(verdict, hypotheses);
@@ -139,6 +143,8 @@ public final class ObfuscatorClassifier {
 
     /** A native protection layer: obfuscated native method names, a bundled native library, a native-obfuscator loader. */
     private static void nativeLayer(ObfuscationProfile p, List<Hypothesis> out) {
+        // A transpiler recognized by its own rule names the layer; this generic one would only repeat it.
+        if (p.metric("natobf.loaders") > 0 || p.metric("j2cc.loaders") > 0) return;
         boolean known = p.metric("marker.native_obfuscator") > 0;
         var rule = new Rule(known ? "native protection layer (JNIC / native-obfuscator style)" : "custom native protection layer");
         rule.add(p.metric("native.obfuscated_names") > 0, 40, "native methods with hexadecimal or non-identifier names: " + p.metric("native.obfuscated_names"));
@@ -213,6 +219,66 @@ public final class ObfuscatorClassifier {
         rule.add(rule.score > 0 && p.has(Technique.SHORT_NAMES), 10, "short names");
         rule.subtract(p.has(Technique.STRING_ENCRYPTION), 30, "string encryption is not a yGuard feature");
         rule.subtract(p.has(Technique.HIDDEN_CALLS), 30, "invokedynamic call hiding is not a yGuard feature");
+        rule.into(out);
+    }
+
+    /**
+     * native-obfuscator (radioegor146) and its forks (native-obfuscator-plus): Java methods transpiled to C++ behind JNI.
+     * The loader's static native {@code registerNativesForClass(int, Class)}, each processed initializer calling it, and
+     * the C++ file named in {@code SourceFile}. The transpiled methods' bytecode is gone from the jar.
+     */
+    private static void nativeObfuscator(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("native-obfuscator (radioegor146 / native-obfuscator-plus)");
+        rule.add(p.metric("natobf.loaders") > 0, 60, "loader with a static native registerNativesForClass(int, Class): " + p.metric("natobf.loaders"));
+        rule.add(p.metric("natobf.registering_classes") > 0, 25, "static initializers registering their natives through it: " + p.metric("natobf.registering_classes"));
+        rule.add(rule.score > 0 && p.metric("natobf.cpp_sourcefiles") > 0, 10, "classes whose SourceFile names a .cpp file: " + p.metric("natobf.cpp_sourcefiles"));
+        rule.add(rule.score > 0 && p.metric("native.libraries") > 0, 10, "native libraries bundled in the jar: " + p.metric("native.libraries"));
+        rule.into(out);
+    }
+
+    /**
+     * j2cc (0x3C50/j2cc): Java to C++ transpiler. Its loader (native {@code bootstrap(byte[])} and {@code initClass(Class)},
+     * {@code doInit(Class)}), the {@code j2cc/natives.bin} and {@code j2cc/relocationInfo.dat} resources, and its
+     * method-handle call obfuscation ({@code j2$mh} table and filler), which it also applies to classes it does not transpile.
+     */
+    private static void j2cc(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("j2cc");
+        rule.add(p.metric("j2cc.loaders") > 0, 50, "loader with native bootstrap(byte[]) and initClass(Class), and doInit(Class): " + p.metric("j2cc.loaders"));
+        rule.add(p.metric("j2cc.resources") > 0, 40, "j2cc/natives.bin and j2cc/relocationInfo.dat resources: " + p.metric("j2cc.resources"));
+        rule.add(p.metric("j2cc.initializing_classes") > 0 && p.metric("j2cc.loaders") > 0, 15, "static initializers calling doInit(Class): "
+            + p.metric("j2cc.initializing_classes"));
+        rule.add(p.metric("j2cc.mh_tables") > 0 && p.metric("j2cc.mh_fillers") > 0, 45, "calls through a j2$mh MethodHandle table: "
+            + p.metric("j2cc.mh_tables") + " classes, " + p.metric("j2cc.mh_call_sites") + " sites");
+        rule.into(out);
+    }
+
+    /**
+     * BytecodeVM (NHCM-dev/BytecodeVM, MIT): methods virtualized into a generated VM's own bytecode. Each protected method
+     * calls the VM's static {@code execute(code id, receiver, Object[] args[, integrity key])}; the VM keeps its programs
+     * in a {@code $CodePool} class.
+     */
+    private static void bytecodeVm(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("BytecodeVM (virtualization)");
+        rule.add(p.metric("bvm.vm_classes") > 0 && p.metric("bvm.stub_methods") > 0, 55, "methods whose body calls a VM's execute(code id, receiver, Object[] args): "
+            + p.metric("bvm.stub_methods"));
+        rule.add(p.metric("bvm.code_pools") > 0, 30, "$CodePool classes: " + p.metric("bvm.code_pools"));
+        rule.add(rule.score > 0 && p.metric("bvm.stub_methods") >= 3, 10, "three or more virtualized methods");
+        rule.into(out);
+    }
+
+    /**
+     * alpheratzteam/obfuscator (MIT): table-keyed numbers and booleans, goto traps on a {@code static final boolean} nothing
+     * sets, trash predicates in front of branches, the same unrelated exceptions declared by every method, anti-debug.
+     */
+    private static void alpheratz(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("alpheratz obfuscator");
+        rule.add(p.metric("alph.number_sites") >= 3, 35, "numbers decoded from a per-class table (ldc; ldc; table[i]; mul; xor): " + p.metric("alph.number_sites"));
+        rule.add(p.metric("alph.boolean_sites") >= 2, 20, "booleans as a comparison of two table entries: " + p.metric("alph.boolean_sites"));
+        rule.add(p.metric("alph.flow_traps") >= 3, 25, "gotos as getstatic F:Z; ifeq; aconst_null; athrow on a field nothing sets: " + p.metric("alph.flow_traps"));
+        rule.add(p.metric("alph.trash_predicates") >= 5, 15, "constant predicates (\"ab\".equals(\"ab\"), Float.isNaN(c)) before branches: " + p.metric("alph.trash_predicates"));
+        rule.add(p.metric("alph.trash_throws") >= 3, 30, "methods declaring BufferUnderflowException and AnnotationTypeMismatchException among others: "
+            + p.metric("alph.trash_throws"));
+        rule.add(rule.score > 0 && p.metric("alph.anti_debug") > 0, 10, "anti-debug check of the JVM's input arguments: " + p.metric("alph.anti_debug"));
         rule.into(out);
     }
 

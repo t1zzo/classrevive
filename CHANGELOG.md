@@ -4,6 +4,10 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Detection
+
+- New rules for native-obfuscator (radioegor146) and its forks such as native-obfuscator-plus, j2cc, BytecodeVM and the alpheratz obfuscator, from shapes that survive their configurable names: native-obfuscator's `registerNativesForClass(int, Class)` loader and registering initializers; j2cc's `bootstrap`/`initClass`/`doInit` loader, `j2cc/natives.bin` resources and `j2$mh` method-handle calls; BytecodeVM's `execute(code id, receiver, Object[] args)` stubs and `$CodePool`; alpheratz's table-keyed numbers and booleans, goto traps, trash predicates and trash `throws`. The generic native-layer hypothesis is no longer reported beside a recognized transpiler. See `docs/obfuscation-detection.md`.
+
 ### Deobfuscation
 
 - Zelix KlassMaster 27 for Java 7 and later targets: the `zkm` pass now also reverses the `invokedynamic` shape, and `decompile` applies it when the diagnosis names `Zelix KlassMaster` with HIGH confidence. Each class's key comes from the obfuscator's own key generator, interpreted statically by a new bounded interpreter (`ZkmRuntime`: objects of jar classes, modelled JDK collections, DES on constants, super classes initialized first as the JVM does). String and number sites become their values, and the bootstraps, resolvers, decryptors and decrypting initializers go. A class whose key fails DES's padding check anywhere is left as it is. Classes whose initializer is native code keep their sites. See `docs/zelix-klassmaster.md`.
