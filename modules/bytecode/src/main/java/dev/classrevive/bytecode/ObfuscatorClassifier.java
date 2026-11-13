@@ -44,6 +44,7 @@ public final class ObfuscatorClassifier {
         j2cc(profile, hypotheses);
         bytecodeVm(profile, hypotheses);
         alpheratz(profile, hypotheses);
+        branchlock(profile, hypotheses);
         hypotheses.sort(Comparator.comparingInt(Hypothesis::score).reversed().thenComparing(Hypothesis::obfuscator));
         String verdict = !hypotheses.isEmpty() ? "SUGGESTED" : profile.techniques().isEmpty() ? "NONE" : "UNKNOWN";
         return new Result(verdict, hypotheses);
@@ -263,6 +264,23 @@ public final class ObfuscatorClassifier {
             + p.metric("bvm.stub_methods"));
         rule.add(p.metric("bvm.code_pools") > 0, 30, "$CodePool classes: " + p.metric("bvm.code_pools"));
         rule.add(rule.score > 0 && p.metric("bvm.stub_methods") >= 3, 10, "three or more virtualized methods");
+        rule.into(out);
+    }
+
+    /**
+     * Branchlock 4 (loerting/branchlock_obf): its watermark and demo markers, leftover annotations, its hash-keyed
+     * reference lookup class, per-class string tables decrypted in {@code <clinit>} with a key from the class name and a
+     * stack-trace check of the initializer's name, and its crasher classes.
+     */
+    private static void branchlock(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("Branchlock");
+        rule.add(p.metric("branchlock.watermark") > 0, 80, "watermark class Branchlock_* naming branchlock.net");
+        rule.add(p.metric("branchlock.demo") > 0, 80, "demo marker (BRANCHLOCK_DOT_NET_DEMO field or printed notice): " + p.metric("branchlock.demo"));
+        rule.add(p.metric("branchlock.annotations") > 0, 60, "net/branchlock/annotations/ annotations left in place: " + p.metric("branchlock.annotations"));
+        rule.add(p.metric("branchlock.reference_lookups") > 0, 50, "reference lookup class with static (long, Class)Method and (long, Class)Field finders");
+        rule.add(p.metric("branchlock.string_tables") >= 2, 40, "static initializers decrypting a String[] table with a stack-trace check of their own name: "
+            + p.metric("branchlock.string_tables"));
+        rule.add(p.metric("branchlock.crasher_classes") > 0, 30, "crasher classes (HTML or oversized META-INF names): " + p.metric("branchlock.crasher_classes"));
         rule.into(out);
     }
 
