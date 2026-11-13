@@ -310,6 +310,54 @@ public final class ObfuscationProfile {
             nativeTranspilers(node);
             bytecodeVm(node);
             alpheratz(node);
+            branchlock(node);
+        }
+
+        /**
+         * Branchlock 4 (loerting/branchlock_obf): its watermark class ({@code Branchlock_*} with {@code static final String}
+         * lines naming branchlock.net), the demo's {@code BRANCHLOCK_DOT_NET_DEMO} field and printed notice, leftover
+         * {@code net/branchlock/annotations/} annotations, its reference lookup class (static
+         * {@code (long, Class)Method} and {@code (long, Class)Field} finders keyed by a name hash), its string tables (a
+         * {@code <clinit>} that reads its own method name from a stack trace, hashes it, and fills a
+         * {@code static String[]} read elsewhere as {@code getstatic; index; aaload}), and its crasher classes (an HTML
+         * class name, a {@code META-INF/...} name of tens of thousands of characters).
+         */
+        private void branchlock(ClassNode node) {
+            String simple = node.name.substring(node.name.lastIndexOf('/') + 1);
+            if (simple.startsWith("Branchlock_"))
+                for (var field : node.fields)
+                    if (field.value instanceof String text && text.contains("branchlock.net")) { metric("branchlock.watermark", 1); break; }
+            for (var field : node.fields) if (field.name.equals("BRANCHLOCK_DOT_NET_DEMO")) { metric("branchlock.demo", 1); break; }
+            if (node.name.startsWith("<html>") || node.name.startsWith("META-INF/") && node.name.length() > 1000) metric("branchlock.crasher_classes", 1);
+            if (branchlockAnnotation(node.visibleAnnotations) || branchlockAnnotation(node.invisibleAnnotations)) metric("branchlock.annotations", 1);
+            boolean methodFinder = false, fieldFinder = false;
+            for (var method : node.methods) {
+                if ((method.access & ACC_STATIC) != 0 && method.desc.equals("(JLjava/lang/Class;)Ljava/lang/reflect/Method;")) methodFinder = true;
+                if ((method.access & ACC_STATIC) != 0 && method.desc.equals("(JLjava/lang/Class;)Ljava/lang/reflect/Field;")) fieldFinder = true;
+                if (branchlockAnnotation(method.visibleAnnotations) || branchlockAnnotation(method.invisibleAnnotations)) metric("branchlock.annotations", 1);
+                for (var insn : method.instructions)
+                    if (insn instanceof LdcInsnNode ldc && ldc.cst instanceof String text && text.contains("obfuscated using a demo version of Branchlock")) metric("branchlock.demo", 1);
+                if (method.name.equals("<clinit>")) {
+                    boolean trace = false, name = false, mask = false, chars = false, table = false;
+                    for (var insn : method.instructions) {
+                        if (insn instanceof MethodInsnNode call) {
+                            if (call.name.equals("getStackTrace")) trace = true;
+                            if (call.owner.equals("java/lang/StackTraceElement") && call.name.equals("getMethodName")) name = true;
+                            if (call.owner.equals("java/lang/String") && call.name.equals("toCharArray")) chars = true;
+                        }
+                        if (insn instanceof MethodInsnNode hash && hash.owner.equals("java/lang/String") && hash.name.equals("hashCode")) mask = true;
+                        if (insn instanceof FieldInsnNode put && put.getOpcode() == PUTSTATIC && put.owner.equals(node.name) && put.desc.equals("[Ljava/lang/String;")) table = true;
+                    }
+                    if (trace && name && mask && chars && table) metric("branchlock.string_tables", 1);
+                }
+            }
+            if (methodFinder && fieldFinder) metric("branchlock.reference_lookups", 1);
+        }
+
+        private static boolean branchlockAnnotation(List<AnnotationNode> annotations) {
+            if (annotations == null) return false;
+            for (var annotation : annotations) if (annotation.desc.startsWith("Lnet/branchlock/annotations/")) return true;
+            return false;
         }
 
         /**

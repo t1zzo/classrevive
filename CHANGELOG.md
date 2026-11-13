@@ -7,6 +7,7 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 ### Detection
 
 - New rules for native-obfuscator (radioegor146) and its forks such as native-obfuscator-plus, j2cc, BytecodeVM and the alpheratz obfuscator, from shapes that survive their configurable names: native-obfuscator's `registerNativesForClass(int, Class)` loader and registering initializers; j2cc's `bootstrap`/`initClass`/`doInit` loader, `j2cc/natives.bin` resources and `j2$mh` method-handle calls; BytecodeVM's `execute(code id, receiver, Object[] args)` stubs and `$CodePool`; alpheratz's table-keyed numbers and booleans, goto traps, trash predicates and trash `throws`. The generic native-layer hypothesis is no longer reported beside a recognized transpiler. See `docs/obfuscation-detection.md`.
+- Branchlock 4 (loerting/branchlock_obf): its watermark and demo markers, leftover annotations, its hash-keyed reference lookup class, its per-class string tables decrypted in `<clinit>` with a stack-trace check, and its crasher classes.
 
 ### Deobfuscation
 
