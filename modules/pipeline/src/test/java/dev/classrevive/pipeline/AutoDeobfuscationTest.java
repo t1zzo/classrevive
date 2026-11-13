@@ -79,12 +79,16 @@ class AutoDeobfuscationTest {
     @Test void onlyAHighHypothesisWithAReversalPassQualifies() {
         var high = new ObfuscatorClassifier.Hypothesis("Skidfuscator", 100, "HIGH", List.of());
         var medium = new ObfuscatorClassifier.Hypothesis("Skidfuscator", 60, "MEDIUM", List.of());
-        var zkm = new ObfuscatorClassifier.Hypothesis("Zelix KlassMaster", 90, "HIGH", List.of());
+        var noPass = new ObfuscatorClassifier.Hypothesis("yGuard (renaming)", 90, "HIGH", List.of());
         var aids = new ObfuscatorClassifier.Hypothesis("Aidsfuscator", 85, "HIGH", List.of());
         assertEquals(Optional.of(high), AutoDeobfuscation.candidate(new ObfuscatorClassifier.Result("SUGGESTED", List.of(high))));
         assertEquals(Optional.empty(), AutoDeobfuscation.candidate(new ObfuscatorClassifier.Result("SUGGESTED", List.of(medium))));
         // The best hypothesis decides: a HIGH obfuscator without a pass is not overridden by a weaker one with a pass.
-        assertEquals(Optional.empty(), AutoDeobfuscation.candidate(new ObfuscatorClassifier.Result("SUGGESTED", List.of(zkm, medium))));
+        assertEquals(Optional.empty(), AutoDeobfuscation.candidate(new ObfuscatorClassifier.Result("SUGGESTED", List.of(noPass, medium))));
+        // Zelix KlassMaster for Java 7 and later targets (invokedynamic) goes to the same pass as its reflection configuration.
+        var zkm = new ObfuscatorClassifier.Hypothesis("Zelix KlassMaster", 90, "HIGH", List.of());
+        assertEquals("zkm", AutoDeobfuscation.PASSES.get(AutoDeobfuscation.candidate(
+            new ObfuscatorClassifier.Result("SUGGESTED", List.of(zkm))).orElseThrow().obfuscator()));
         assertEquals("aidsfuscator", AutoDeobfuscation.PASSES.get(AutoDeobfuscation.candidate(
             new ObfuscatorClassifier.Result("SUGGESTED", List.of(aids))).orElseThrow().obfuscator()));
         // Phase 2DK

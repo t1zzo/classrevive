@@ -90,7 +90,19 @@ public final class ZkmReverser implements Opcodes {
         for (var node : nodes.values()) if (reflectionClass(node)) { reflection = node; break; }
         var keyed = new ArrayList<ClassNode>();
         for (var node : nodes.values()) if (keyedDecryptors(node)) keyed.add(node);
-        if (reflection == null && keyed.isEmpty())
+        // Java 7 and later targets: decryptors reached through invokedynamic.
+        var indyTargets = new LinkedHashMap<String,Map<String,MethodNode>>();
+        for (var node : nodes.values()) {
+            var found = new HashMap<String,MethodNode>();
+            for (var method : node.methods)
+                for (var insn : method.instructions)
+                    if (insn instanceof InvokeDynamicInsnNode indy && !found.containsKey(indyKey(indy))) {
+                        MethodNode target = indyDecryptor(node, indy);
+                        if (target != null) found.put(indyKey(indy), target);
+                    }
+            if (!found.isEmpty()) indyTargets.put(node.name, found);
+        }
+        if (reflection == null && keyed.isEmpty() && indyTargets.isEmpty())
             return new Result(entries, new Report(false, Map.of("classes", nodes.size()), List.of()), List.of());
 
         // Initializers: decrypted constants and filled tables.
@@ -99,7 +111,7 @@ public final class ZkmReverser implements Opcodes {
         int constants = 0;
         for (var node : nodes.values()) {
             MethodNode clinit = clinit(node);
-            if (clinit == null) continue;
+            if (clinit == null || indyTargets.containsKey(node.name)) continue; // those run with ZkmRuntime below
             var fields = new HashSet<String>();
             for (var field : node.fields) if ((field.access & ACC_STATIC) != 0) fields.add(field.name + ":" + field.desc);
             var evaluator = new AidsEvaluator(node, node == reflection ? reflectionHooks(node) : null);
@@ -119,6 +131,8 @@ public final class ZkmReverser implements Opcodes {
         }
         count("string constants decrypted", constants);
         classKeys(evaluators);
+        var runtime = new ZkmRuntime(nodes);
+        var indyReady = indyInitializers(runtime, indyTargets);
 
         // Rounds: rewrite what the known keys decrypt, then learn the keys calls pass on.
         var parameters = new HashMap<String,Map<Integer,Object>>();
@@ -140,6 +154,7 @@ public final class ZkmReverser implements Opcodes {
                     if (analysis == null || analysis.frames() == null) { notAnalyzable.add(key + " (" + ZkmKeys.FAILURE.get() + ")"); continue; }
                     notAnalyzable.removeIf(entry -> entry.startsWith(key + " ("));
                     int done = decrypt(node, method, analysis.frames(), decryptors.getOrDefault(node.name, Map.of()), evaluators.get(node.name));
+                    if (indyReady.contains(node.name)) done += decryptIndy(node, method, analysis.frames(), indyTargets.get(node.name), runtime);
                     if (reflection != null) done += unreflect(node, method, known, packedKeys.getOrDefault(key, Map.of()), reflection, evaluators.get(reflection.name));
                     if (done > 0) {
                         changed.add(node.name);
@@ -165,10 +180,16 @@ public final class ZkmReverser implements Opcodes {
         count("opaque flag reads folded", opaque.reads);
         count("opaque branches folded", opaque.branches);
 
+        // The clean-ups below only touch the classes the obfuscator protected: a library bundled in the jar keeps its bytes,
+        // so the engines read it exactly as before.
+        var scope = protectedClasses(reflection, keyed, indyTargets, changed);
+        count("protected classes", scope.size());
+        // Exception obfuscation: handlers rethrow through a helper returning its argument; without it they only rethrow.
+        count("identity helper calls removed", removeIdentityCalls(scope, changed));
         // Clean-up: dead pure code, unwrapping handlers, decryptors nothing calls.
         int dead = 0, handlers = 0;
         for (var node : nodes.values()) {
-            if (node == reflection) continue;
+            if (node == reflection || !scope.contains(node.name)) continue;
             for (var method : node.methods) {
                 int removed = PureDeadCode.clean(node.name, method, classKeys.keySet());
                 int unwrapped = removeUnwrappers(method);
@@ -186,7 +207,7 @@ public final class ZkmReverser implements Opcodes {
 
         // What the unpacking left: the dropped keys' expressions.
         for (var node : nodes.values()) {
-            if (node == reflection) continue;
+            if (node == reflection || !scope.contains(node.name) && !changed.contains(node.name)) continue;
             for (var method : node.methods) {
                 int removed = PureDeadCode.clean(node.name, method, classKeys.keySet());
                 if (removed > 0) changed.add(node.name);
@@ -208,10 +229,26 @@ public final class ZkmReverser implements Opcodes {
             if (size != node.methods.size()) { unused += size - node.methods.size(); changed.add(node.name); }
         }
         count("decryptors removed", unused);
+        count("invokedynamic decryption methods removed", removeIndyMachinery(indyTargets, changed));
+        int indyLeft = 0;
+        var indyViews = new LinkedHashMap<String,InitView>();
+        for (var entry : indyTargets.entrySet()) {
+            int left = 0;
+            for (var method : nodes.get(entry.getKey()).methods)
+                for (var insn : method.instructions)
+                    if (insn instanceof InvokeDynamicInsnNode indy && entry.getValue().containsKey(indyKey(indy))) left++;
+            indyLeft += left;
+            // Once nothing decrypts any more, the class's own initializer goes like the others' (its tables only fed the decryptor).
+            if (left == 0 && indyReady.contains(entry.getKey()))
+                indyViews.put(entry.getKey(), new InitView(runtime.written.getOrDefault(entry.getKey(), Set.of()), runtime.statics.getOrDefault(entry.getKey(), Map.of())));
+        }
+        count("invokedynamic decryptions left", indyLeft);
+        evaluators.keySet().retainAll(scope);
         stripInitializers(evaluators, reflection, changed);
+        stripInitializers(indyViews, changed);
         int hoisted = 0;
         for (var node : nodes.values())
-            for (var method : node.methods)
+            if (scope.contains(node.name) || changed.contains(node.name)) for (var method : node.methods)
                 if (method.name.equals("<init>")) { int moved = PureDeadCode.afterSuper(node, method, classKeys.keySet()); if (moved > 0) { changed.add(node.name); hoisted += moved; } }
         count("key statements moved after super()", hoisted);
         int left = 0;
@@ -381,6 +418,306 @@ public final class ZkmReverser implements Opcodes {
             done++;
         }
         return done;
+    }
+
+    // ---------------------------------------------------------------- invokedynamic (Java 7 and later targets)
+
+    static final String BOOTSTRAP = "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;";
+    /** The resolver's parameters; it returns the value as an {@code Object} or as the primitive itself. */
+    static final String RESOLVER = "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/invoke/MutableCallSite;Ljava/lang/String;[Ljava/lang/Object;)";
+
+    /** A call site's bootstrap and type: the sites sharing it reach the same decryptor. */
+    static String indyKey(InvokeDynamicInsnNode indy) { return indy.bsm.getName() + indy.bsm.getDesc() + "|" + indy.desc; }
+
+    /**
+     * The decryptor an {@code invokedynamic} of Zelix KlassMaster 27 reaches: its bootstrap is a static method of the same
+     * class that creates a {@code MutableCallSite} whose target collects the arguments into a resolver
+     * {@code (Lookup, MutableCallSite, String, Object[])Object}; the resolver calls one static method of the class with the
+     * call site's own type and installs the result as a constant ({@code MethodHandles.constant}). The site is then that
+     * call. Null for any other shape.
+     */
+    static MethodNode indyDecryptor(ClassNode node, InvokeDynamicInsnNode indy) {
+        var bsm = indy.bsm;
+        if (bsm.getTag() != H_INVOKESTATIC || !bsm.getOwner().equals(node.name) || !bsm.getDesc().equals(BOOTSTRAP) || indy.bsmArgs.length != 0) return null;
+        var args = Type.getArgumentTypes(indy.desc);
+        if (args.length == 0 || Arrays.stream(args).anyMatch(t -> t.getSort() < Type.BOOLEAN || t.getSort() > Type.LONG || t.getSort() == Type.FLOAT)) return null;
+        String result = Type.getReturnType(indy.desc).getDescriptor();
+        if (!result.equals("Ljava/lang/String;") && !result.equals("I") && !result.equals("J")) return null;
+        MethodNode bootstrap = find(node, bsm.getName(), bsm.getDesc());
+        if (bootstrap == null || (bootstrap.access & ACC_STATIC) == 0) return null;
+        Handle resolverHandle = null;
+        boolean mutable = false;
+        for (var insn : bootstrap.instructions) {
+            if (insn instanceof LdcInsnNode ldc && ldc.cst instanceof Handle handle) {
+                if (resolverHandle != null || !handle.getOwner().equals(node.name) || !handle.getDesc().startsWith(RESOLVER)) return null;
+                resolverHandle = handle;
+            }
+            if (insn instanceof TypeInsnNode type && type.getOpcode() == NEW && type.desc.equals("java/lang/invoke/MutableCallSite")) mutable = true;
+        }
+        if (resolverHandle == null || !mutable) return null;
+        MethodNode resolver = find(node, resolverHandle.getName(), resolverHandle.getDesc());
+        if (resolver == null) return null;
+        MethodNode target = null;
+        boolean constant = false;
+        for (var insn : resolver.instructions) {
+            if (!(insn instanceof MethodInsnNode call)) continue;
+            if (call.owner.equals("java/lang/invoke/MethodHandles") && call.name.equals("constant")) constant = true;
+            if (call.getOpcode() == INVOKESTATIC && call.owner.equals(node.name) && call.desc.equals(indy.desc)) {
+                MethodNode found = find(node, call.name, call.desc);
+                if (found == null || target != null && target != found) return null;
+                target = found;
+            }
+        }
+        if (target == null || !constant || (target.access & ACC_STATIC) == 0) return null;
+        return target;
+    }
+
+    private static MethodNode find(ClassNode node, String name, String desc) {
+        for (var m : node.methods) if (m.name.equals(name) && m.desc.equals(desc)) return m;
+        return null;
+    }
+
+    /**
+     * Runs the obfuscator's part of each such class's {@code <clinit>} with {@link ZkmRuntime}: its key generator and its
+     * DES tables. The class keys it sets (int and long statics written once, in the initializer only) join the others.
+     * Returns the classes whose decryptors can then be evaluated: those whose initializer filled at least one table.
+     */
+    private Set<String> indyInitializers(ZkmRuntime runtime, Map<String,Map<String,MethodNode>> indyTargets) {
+        var ready = new LinkedHashSet<String>();
+        if (indyTargets.isEmpty()) return ready;
+        var writtenOutside = new HashSet<String>();
+        var clinitWrites = new HashMap<String,Integer>();
+        for (var node : nodes.values())
+            for (var method : node.methods)
+                for (var insn : method.instructions)
+                    if (insn instanceof FieldInsnNode put && put.getOpcode() == PUTSTATIC) {
+                        String key = put.owner + "." + put.name + ":" + put.desc;
+                        if (method.name.equals("<clinit>") && put.owner.equals(node.name)) clinitWrites.merge(key, 1, Integer::sum);
+                        else writtenOutside.add(key);
+                    }
+        int keys = 0, natives = 0;
+        for (String owner : indyTargets.keySet()) {
+            var node = nodes.get(owner);
+            try { ZkmRuntime.onLargeStack(() -> runtime.initialize(node)); }
+            catch (ZkmRuntime.Refusal refusal) { refuse(owner + ".<clinit> (invokedynamic): " + refusal.getMessage()); continue; }
+            var map = runtime.statics.getOrDefault(owner, Map.of());
+            boolean table = false;
+            for (String field : runtime.written.getOrDefault(owner, Set.of())) {
+                Object value = map.get(field);
+                String key = owner + "." + field;
+                if (field.contains(":[") && value != null) table = true;
+                if ((value instanceof Long || value instanceof Integer) && !writtenOutside.contains(key) && clinitWrites.getOrDefault(key, 0) == 1
+                    && classKeys.putIfAbsent(key, value) == null) keys++;
+            }
+            if (table) ready.add(owner);
+            else if (nativeInitializer(node)) natives++;
+            else refuse(owner + ".<clinit> (invokedynamic): no decryption table set before the program's code");
+        }
+        // A wrong class key still passes DES's padding check about once in 256 decryptions: a class any of whose sites with a
+        // constant key fails it is not trusted at all, so no site of it is replaced by a value decrypted with a wrong key.
+        int distrusted = 0;
+        for (var it = ready.iterator(); it.hasNext(); ) {
+            String owner = it.next();
+            String failure = firstPaddingFailure(nodes.get(owner), indyTargets.get(owner), runtime);
+            if (failure == null) continue;
+            it.remove(); distrusted++;
+            refuse(owner + ": class key not confirmed (" + failure + ")");
+        }
+        count("invokedynamic classes with a wrong key", distrusted);
+        // Where the program's code starts in each initializer, marked before any instruction is replaced.
+        for (String owner : ready) {
+            var stop = runtime.stop(owner);
+            MethodNode clinit = clinit(nodes.get(owner));
+            if (stop == null || clinit == null) continue;
+            LabelNode start = null;
+            if (stop.at() != null) { start = new LabelNode(); clinit.instructions.insertBefore(stop.at(), start); }
+            starts.put(owner, start);
+        }
+        count("invokedynamic classes initialized", ready.size());
+        count("invokedynamic class keys", keys);
+        count("classes whose initializer is native code", natives);
+        return ready;
+    }
+
+    /** The first site of the class, with a key known from the class keys alone, whose decryption fails a padding check; null if none. */
+    private String firstPaddingFailure(ClassNode node, Map<String,MethodNode> targets, ZkmRuntime runtime) {
+        for (var method : node.methods) {
+            if (targets.containsValue(method)) continue;
+            boolean sites = false;
+            for (var insn : method.instructions) if (insn instanceof InvokeDynamicInsnNode indy && targets.containsKey(indyKey(indy))) sites = true;
+            if (!sites) continue;
+            var analysis = ZkmKeys.analyze(node.name, method, Map.of(), Map.of(), classKeys);
+            if (analysis == null || analysis.frames() == null) continue;
+            var insns = method.instructions.toArray();
+            for (int i = 0; i < insns.length; i++) {
+                if (!(insns[i] instanceof InvokeDynamicInsnNode indy) || !targets.containsKey(indyKey(indy))) continue;
+                Object[] args = ZkmKeys.arguments(analysis.frames()[i], indy.desc);
+                if (args == null) continue;
+                try { runtime.call(node.name, targets.get(indyKey(indy)), args); }
+                catch (ZkmRuntime.Refusal refusal) {
+                    if (refusal.getMessage().contains("Padding")) return method.name + ": " + refusal.getMessage().replaceAll(" <.*", "");
+                }
+            }
+        }
+        return null;
+    }
+
+    /** A {@code <clinit>} that only hands the class to native code (its keys and tables are set outside the bytecode). */
+    private static boolean nativeInitializer(ClassNode node) {
+        var clinit = find(node, "<clinit>", "()V");
+        if (clinit == null) return false;
+        for (var insn : clinit.instructions)
+            if (insn instanceof MethodInsnNode call && call.owner.equals(node.name)) {
+                var target = find(node, call.name, call.desc);
+                if (target != null && (target.access & ACC_NATIVE) != 0) return true;
+            }
+        return false;
+    }
+
+    /** Replaces each {@code invokedynamic} decryption whose arguments are constants by its value. */
+    private int decryptIndy(ClassNode node, MethodNode method, Frame<ZkmKeys.KV>[] frames, Map<String,MethodNode> targets, ZkmRuntime runtime) {
+        if (targets == null || targets.containsValue(method)) return 0;
+        int done = 0;
+        var insns = method.instructions.toArray();
+        for (int i = 0; i < insns.length; i++) {
+            if (!(insns[i] instanceof InvokeDynamicInsnNode indy)) continue;
+            var target = targets.get(indyKey(indy));
+            if (target == null) continue;
+            Object[] args = ZkmKeys.arguments(frames[i], indy.desc);
+            if (args == null) continue;
+            Object value;
+            try { value = runtime.call(node.name, target, args); }
+            catch (ZkmRuntime.Refusal refusal) { unmatched.put(indy, "decryptor refused: " + refusal.getMessage()); continue; }
+            var list = pops(indy.desc);
+            if (value instanceof String text) { list.add(new LdcInsnNode(text)); count("strings decrypted", 1); }
+            else if (value instanceof Integer number) { list.add(MethodRewriter.push(number)); count("numbers decrypted", 1); }
+            else if (value instanceof Long number) { list.add(new LdcInsnNode(number)); count("numbers decrypted", 1); }
+            else continue;
+            unmatched.remove(indy);
+            method.instructions.insertBefore(indy, list);
+            method.instructions.remove(indy);
+            method.maxStack += 2;
+            done++;
+        }
+        return done;
+    }
+
+    /**
+     * The bootstraps no call site uses any more go, then the resolvers only they named, then the decryptors only those
+     * called: each when nothing else in the jar refers to it.
+     */
+    private int removeIndyMachinery(Map<String,Map<String,MethodNode>> indyTargets, Set<String> changed) {
+        int removed = 0;
+        for (var entry : indyTargets.entrySet()) {
+            var node = nodes.get(entry.getKey());
+            var candidates = Collections.newSetFromMap(new IdentityHashMap<MethodNode,Boolean>());
+            for (var target : entry.getValue().values()) candidates.add(target);
+            for (var method : node.methods) {
+                if (method.desc.equals(BOOTSTRAP) && (method.access & ACC_STATIC) != 0) candidates.add(method);
+                if (method.desc.startsWith(RESOLVER) && (method.access & ACC_STATIC) != 0) candidates.add(method);
+            }
+            boolean progress = true;
+            while (progress) {
+                progress = false;
+                for (var it = node.methods.iterator(); it.hasNext(); ) {
+                    var method = it.next();
+                    if (!candidates.contains(method) || referencedMethod(node.name, method)) continue;
+                    it.remove(); removed++; progress = true; changed.add(node.name);
+                    // What only the machinery called (a decryptor of a kind no site uses, its helpers) may go next.
+                    for (var insn : method.instructions)
+                        if (insn instanceof MethodInsnNode call && call.getOpcode() == INVOKESTATIC && call.owner.equals(node.name)) {
+                            var callee = find(node, call.name, call.desc);
+                            if (callee != null && !callee.name.startsWith("<")) candidates.add(callee);
+                        }
+                }
+            }
+        }
+        return removed;
+    }
+
+    /**
+     * Zelix KlassMaster's exception obfuscation: {@code catch (RuntimeException e) { throw a(e); }} where {@code a} is a
+     * static method of the class returning its only argument ({@code aload_0; areturn}, the same reference type in and
+     * out). Each call is dropped (the value on the stack is the same), then the helper once nothing calls it.
+     */
+    private int removeIdentityCalls(Set<String> scope, Set<String> changed) {
+        var identities = new HashMap<String,MethodNode>();
+        for (var node : nodes.values())
+            if (scope.contains(node.name))
+                for (var method : node.methods)
+                    if (identity(method)) identities.put(node.name + "." + method.name + method.desc, method);
+        if (identities.isEmpty()) return 0;
+        int removed = 0;
+        for (var node : nodes.values())
+            if (scope.contains(node.name)) for (var method : node.methods)
+                for (var insn : method.instructions.toArray())
+                    if (insn instanceof MethodInsnNode call && call.getOpcode() == INVOKESTATIC && identities.containsKey(call.owner + "." + call.name + call.desc)) {
+                        method.instructions.remove(call);
+                        removed++;
+                        changed.add(node.name);
+                    }
+        for (var node : nodes.values())
+            node.methods.removeIf(method -> identities.get(node.name + "." + method.name + method.desc) == method && !referencedMethod(node.name, method));
+        return removed;
+    }
+
+    /**
+     * The classes Zelix KlassMaster protected: those whose code the decryption rounds already rewrote, those holding its
+     * decryptors, call sites, reflection class or class keys, those calling the reflection class, and those deriving a
+     * method key ({@code lxor} with a {@code long} constant).
+     */
+    private Set<String> protectedClasses(ClassNode reflection, List<ClassNode> keyed, Map<String,Map<String,MethodNode>> indyTargets, Set<String> changed) {
+        var scope = new HashSet<>(changed);
+        scope.addAll(indyTargets.keySet());
+        for (var node : keyed) scope.add(node.name);
+        if (reflection != null) scope.add(reflection.name);
+        for (String key : classKeys.keySet()) scope.add(key.substring(0, key.indexOf('.')));
+        for (var node : nodes.values()) {
+            if (scope.contains(node.name)) continue;
+            search:
+            for (var method : node.methods)
+                for (var insn : method.instructions) {
+                    if (reflection != null && insn instanceof MethodInsnNode call && call.owner.equals(reflection.name)) { scope.add(node.name); break search; }
+                    var previous = insn.getPrevious();
+                    if (insn.getOpcode() == LXOR && previous != null && (constantLong(previous)
+                        || previous.getOpcode() == LLOAD && constantLong(previous.getPrevious()))) { scope.add(node.name); break search; }
+                }
+        }
+        return scope;
+    }
+
+    private static boolean constantLong(AbstractInsnNode insn) {
+        return insn instanceof LdcInsnNode ldc && ldc.cst instanceof Long;
+    }
+
+    private static boolean identity(MethodNode method) {
+        if ((method.access & (ACC_STATIC | ACC_NATIVE | ACC_ABSTRACT)) != ACC_STATIC || !method.tryCatchBlocks.isEmpty()) return false;
+        var args = Type.getArgumentTypes(method.desc);
+        if (args.length != 1 || args[0].getSort() != Type.OBJECT || !args[0].equals(Type.getReturnType(method.desc))) return false;
+        var real = new ArrayList<AbstractInsnNode>();
+        for (var insn : method.instructions) if (insn.getOpcode() >= 0) real.add(insn);
+        return real.size() == 2 && real.get(0) instanceof VarInsnNode load && load.getOpcode() == ALOAD && load.var == 0 && real.get(1).getOpcode() == ARETURN;
+    }
+
+    /** Whether any method of the jar but {@code target} itself calls it, names it in a handle, or uses it as a bootstrap. */
+    private boolean referencedMethod(String owner, MethodNode target) {
+        for (var node : nodes.values())
+            for (var method : node.methods) {
+                if (method == target) continue;
+                for (var insn : method.instructions) {
+                    if (insn instanceof MethodInsnNode call && call.owner.equals(owner) && call.name.equals(target.name) && call.desc.equals(target.desc)) return true;
+                    if (insn instanceof LdcInsnNode ldc && ldc.cst instanceof Handle h && names(h, owner, target)) return true;
+                    if (insn instanceof InvokeDynamicInsnNode indy) {
+                        if (names(indy.bsm, owner, target)) return true;
+                        for (Object arg : indy.bsmArgs) if (arg instanceof Handle h && names(h, owner, target)) return true;
+                    }
+                }
+            }
+        return false;
+    }
+
+    private static boolean names(Handle handle, String owner, MethodNode target) {
+        return handle.getOwner().equals(owner) && handle.getName().equals(target.name) && handle.getDesc().equals(target.desc);
     }
 
     /** Pops for a call's arguments, top first. */
@@ -940,15 +1277,26 @@ public final class ZkmReverser implements Opcodes {
      * first when the interpreter's value is a constant; any other such field, or a program local the skipped code set,
      * keeps the initializer as it is. Private static fields it wrote that nothing names any more go.
      */
+    /** What a partial initializer left: the static fields it wrote ({@code name:desc}) and their values. */
+    record InitView(Set<String> written, Map<String,Object> statics) {}
+
     private void stripInitializers(Map<String,AidsEvaluator> evaluators, ClassNode reflection, Set<String> changed) {
-        int stripped = 0, kept = 0, fieldsRemoved = 0;
+        var views = new LinkedHashMap<String,InitView>();
         for (var entry : evaluators.entrySet()) {
+            // The reflection class's tables as its initializer left them, before any lookup decrypted entries in place.
+            if (entry.getKey().equals(reflection == null ? null : reflection.name)) entry.getValue().restore(reflectionState);
+            views.put(entry.getKey(), new InitView(entry.getValue().written, entry.getValue().statics));
+        }
+        stripInitializers(views, changed);
+    }
+
+    private void stripInitializers(Map<String,InitView> views, Set<String> changed) {
+        int stripped = 0, kept = 0, fieldsRemoved = 0;
+        for (var entry : views.entrySet()) {
             var node = nodes.get(entry.getKey());
             var evaluator = entry.getValue();
             MethodNode clinit = clinit(node);
-            if (clinit == null || !starts.containsKey(node.name) || evaluator.written.isEmpty()) continue;
-            // The reflection class's tables as its initializer left them, before any lookup decrypted entries in place.
-            if (node == reflection) evaluator.restore(reflectionState);
+            if (clinit == null || !starts.containsKey(node.name) || evaluator.written().isEmpty()) continue;
             var backup = new MethodNode(ASM9, clinit.access, clinit.name, clinit.desc, clinit.signature,
                 clinit.exceptions == null ? null : clinit.exceptions.toArray(String[]::new));
             clinit.accept(backup);
@@ -969,14 +1317,14 @@ public final class ZkmReverser implements Opcodes {
             var prologue = new InsnList();
             var arrays = Collections.newSetFromMap(new IdentityHashMap<Object,Boolean>());
             boolean keep = false;
-            for (String field : new TreeSet<>(evaluator.written)) {
+            for (String field : new TreeSet<>(evaluator.written())) {
                 if (!read.contains(field)) continue;
                 String name = field.substring(0, field.indexOf(':')), desc = field.substring(field.indexOf(':') + 1);
                 FieldNode declared = null;
                 for (var candidate : node.fields) if (candidate.name.equals(name) && candidate.desc.equals(desc)) declared = candidate;
                 if (declared != null && declared.value != null) continue; // a ConstantValue field
-                var push = evaluator.statics.containsKey(field) ? constant(evaluator.statics.get(field), desc, arrays) : null;
-                if (push == null) { keep = true; refuse(node.name + ".<clinit> kept: " + field + " is still read and not a constant" + sample(evaluator.statics.get(field))); break; }
+                var push = evaluator.statics().containsKey(field) ? constant(evaluator.statics().get(field), desc, arrays) : null;
+                if (push == null) { keep = true; refuse(node.name + ".<clinit> kept: " + field + " is still read and not a constant" + sample(evaluator.statics().get(field))); break; }
                 prologue.add(push);
                 prologue.add(new FieldInsnNode(PUTSTATIC, node.name, name, desc));
             }
@@ -996,7 +1344,7 @@ public final class ZkmReverser implements Opcodes {
                         if (insn instanceof FieldInsnNode use && use.owner.equals(node.name)) named.add(use.name + ":" + use.desc);
             int before = node.fields.size();
             node.fields.removeIf(field -> (field.access & (ACC_STATIC | ACC_PRIVATE)) == (ACC_STATIC | ACC_PRIVATE)
-                && evaluator.written.contains(field.name + ":" + field.desc) && !named.contains(field.name + ":" + field.desc));
+                && evaluator.written().contains(field.name + ":" + field.desc) && !named.contains(field.name + ":" + field.desc));
             fieldsRemoved += before - node.fields.size();
             boolean onlyReturn = true;
             for (var insn : clinit.instructions) if (insn.getOpcode() >= 0 && insn.getOpcode() != RETURN) onlyReturn = false;
