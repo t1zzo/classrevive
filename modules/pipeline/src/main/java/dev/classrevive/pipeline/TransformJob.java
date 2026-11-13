@@ -31,6 +31,14 @@ public final class TransformJob {
     }
     /** @param dependencies Phase 2DD: JARs the JVM verifier may load (never link) while it checks the transformed classes */
     public Result run(Path input,Path output,int budget,Duration timeout,String passes,List<Path> dependencies) throws IOException,InterruptedException {
+        return run(input,output,budget,timeout,passes,dependencies,false);
+    }
+    /**
+     * @param caseCollisions whether archive entries that differ only in letter case (or oversized ones the inventory left
+     * out) are accepted: only for {@code decompile}'s own reversal, which makes the names portable right after it; the
+     * {@code transform} command would write them back as they are.
+     */
+    public Result run(Path input,Path output,int budget,Duration timeout,String passes,List<Path> dependencies,boolean caseCollisions) throws IOException,InterruptedException {
         dependencies=List.copyOf(dependencies);
         var selected = BuiltinPasses.names(passes);
         if(budget<1 || budget>10000) throw new IllegalArgumentException("Change budget must be 1..10000");
@@ -55,7 +63,7 @@ public final class TransformJob {
             report.put("input_sha256",inventory.sha256());
             if(!inventory.successful()) throw new IOException("Input rejected: "+inventory.diagnostics().getFirst().code());
             // Phase 2BV: decompile disambiguates case-only collisions and drops oversized resources; this command would write them back.
-            if(!inventory.notices().isEmpty()) throw new IOException("Input rejected: archive entries that collide by letter case or exceed the entry limit are supported by decompile only");
+            if(!caseCollisions && !inventory.notices().isEmpty()) throw new IOException("Input rejected: archive entries that collide by letter case or exceed the entry limit are supported by decompile only");
             if(inventory.entries().stream().noneMatch(e -> e.classInfo()!=null)) throw new IOException("Input has no classes");
             if(jar) ArchiveGuards.rejectSignedOrDigested(snapshot);
             else {

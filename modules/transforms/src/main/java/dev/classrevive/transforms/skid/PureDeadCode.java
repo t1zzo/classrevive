@@ -38,9 +38,12 @@ final class PureDeadCode implements Opcodes {
         var insns = method.instructions;
         var rethrow = new ArrayList<TryCatchBlockNode>();
         for (var block : method.tryCatchBlocks) {
-            var first = block.handler.getNext();
-            while (first != null && first.getOpcode() < 0) first = first.getNext();
+            var first = real(block.handler.getNext());
             if (first != null && first.getOpcode() == ATHROW) rethrow.add(block);
+            // javac's shape of the same rethrow: catch (E e) { throw e; }
+            else if (first instanceof VarInsnNode store && store.getOpcode() == ASTORE
+                && real(store.getNext()) instanceof VarInsnNode load && load.getOpcode() == ALOAD && load.var == store.var
+                && real(load.getNext()) != null && real(load.getNext()).getOpcode() == ATHROW) rethrow.add(block);
         }
         if (rethrow.isEmpty()) return 0;
         int count = 0;
@@ -57,6 +60,12 @@ final class PureDeadCode implements Opcodes {
             if (safe) { blocks.remove(block); count++; }
         }
         return count;
+    }
+
+    /** The first instruction from {@code insn} on that is not a label, line number or frame. */
+    private static AbstractInsnNode real(AbstractInsnNode insn) {
+        while (insn != null && insn.getOpcode() < 0) insn = insn.getNext();
+        return insn;
     }
 
     /** A {@code goto} to the instruction right after it. */

@@ -2,6 +2,14 @@
 
 All notable changes to ClassRevive are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Before 1.0.0, minor versions may change command options and report fields; report schema changes stay additive within `schema_version` 1.
 
+## [Unreleased]
+
+### Deobfuscation
+
+- Zelix KlassMaster 27 for Java 7 and later targets: the `zkm` pass now also reverses the `invokedynamic` shape, and `decompile` applies it when the diagnosis names `Zelix KlassMaster` with HIGH confidence. Each class's key comes from the obfuscator's own key generator, interpreted statically by a new bounded interpreter (`ZkmRuntime`: objects of jar classes, modelled JDK collections, DES on constants, super classes initialized first as the JVM does). String and number sites become their values, and the bootstraps, resolvers, decryptors and decrypting initializers go. A class whose key fails DES's padding check anywhere is left as it is. Classes whose initializer is native code keep their sites. See `docs/zelix-klassmaster.md`.
+- Exception obfuscation: `catch (RuntimeException e) { throw a(e); }` through a helper returning its argument loses the helper, then the handler that only rethrows (also in javac's `astore; aload; athrow` shape).
+- `decompile`'s own reversal accepts archives whose class names differ only in letter case; they are made portable right after it, as before.
+
 ## [0.3.0] - 2026-11-11
 
 ### Deobfuscation

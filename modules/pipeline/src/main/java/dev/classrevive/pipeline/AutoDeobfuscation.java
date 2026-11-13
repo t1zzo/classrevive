@@ -26,7 +26,9 @@ public final class AutoDeobfuscation {
         "Aidsfuscator", dev.classrevive.transforms.skid.AidsfuscatorReverser.ID,
         // Phase 2DK
         "Radon", dev.classrevive.transforms.radon.RadonReverser.ID,
-        "Zelix KlassMaster 27", dev.classrevive.transforms.skid.ZkmReverser.ID);
+        "Zelix KlassMaster 27", dev.classrevive.transforms.skid.ZkmReverser.ID,
+        // Zelix KlassMaster for Java 7 and later targets: invokedynamic decryption and its key generator (same pass).
+        "Zelix KlassMaster", dev.classrevive.transforms.skid.ZkmReverser.ID);
     /** Verifier errors that mean the bytecode itself is invalid, as opposed to a class it refers to being absent. */
     static final Set<String> BYTECODE_ERRORS = Set.of("java.lang.VerifyError", "java.lang.ClassFormatError",
         "java.lang.UnsupportedClassVersionError", "java.lang.ClassCircularityError", "java.lang.IncompatibleClassChangeError",
@@ -82,7 +84,7 @@ public final class AutoDeobfuscation {
         Path input = output.resolve(INPUT), directory = output.resolve(DecompilationJob.DEOBFUSCATION_DIRECTORY);
         try {
             TransformJob.Result result;
-            try { result = new TransformJob().run(input, directory, 10_000, timeout, pass, dependencies); }
+            try { result = new TransformJob().run(input, directory, 10_000, timeout, pass, dependencies, true); }
             catch (IOException failure) { return failed(hypothesis, pass, "transform failed: " + failure.getMessage()); }
             if (!result.successful()) return failed(hypothesis, pass, "transform worker " + result.worker().status());
             Path jar = directory.resolve("worker/transformed/transformed.jar");
