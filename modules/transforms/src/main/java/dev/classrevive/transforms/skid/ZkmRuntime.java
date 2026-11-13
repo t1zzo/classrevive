@@ -793,7 +793,9 @@ final class ZkmRuntime implements Opcodes {
                         yield javax.crypto.Cipher.getInstance(transformation);
                     }
                     case "init" -> {
-                        ((javax.crypto.Cipher) receiver).init(intValue(args[0]), (java.security.Key) args[1], (java.security.spec.AlgorithmParameterSpec) args[2]);
+                        // Only decryption of the jar's constants: the key and IV are the obfuscator's, nothing is encrypted here.
+                        if (intValue(args[0]) != javax.crypto.Cipher.DECRYPT_MODE) throw new Refusal("cipher mode " + args[0]);
+                        ((javax.crypto.Cipher) receiver).init(javax.crypto.Cipher.DECRYPT_MODE, (java.security.Key) args[1], (java.security.spec.AlgorithmParameterSpec) args[2]);
                         yield null;
                     }
                     default -> ((javax.crypto.Cipher) receiver).doFinal((byte[]) args[0]);
