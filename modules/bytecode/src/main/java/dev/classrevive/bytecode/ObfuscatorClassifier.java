@@ -45,6 +45,7 @@ public final class ObfuscatorClassifier {
         bytecodeVm(profile, hypotheses);
         alpheratz(profile, hypotheses);
         branchlock(profile, hypotheses);
+        blackObfuscator(profile, hypotheses);
         hypotheses.sort(Comparator.comparingInt(Hypothesis::score).reversed().thenComparing(Hypothesis::obfuscator));
         String verdict = !hypotheses.isEmpty() ? "SUGGESTED" : profile.techniques().isEmpty() ? "NONE" : "UNKNOWN";
         return new Result(verdict, hypotheses);
@@ -264,6 +265,18 @@ public final class ObfuscatorClassifier {
             + p.metric("bvm.stub_methods"));
         rule.add(p.metric("bvm.code_pools") > 0, 30, "$CodePool classes: " + p.metric("bvm.code_pools"));
         rule.add(rule.score > 0 && p.metric("bvm.stub_methods") >= 3, 10, "three or more virtualized methods");
+        rule.into(out);
+    }
+
+    /**
+     * BlackObfuscator (CodingGay/BlackObfuscator, Apache-2.0): Android dex control-flow flattening keyed by a string:
+     * {@code switch (s.hashCode() ^ k)} in a loop whose cases assign the next state string and jump back.
+     */
+    private static void blackObfuscator(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("BlackObfuscator");
+        rule.add(p.metric("black.flattened_methods") >= 1, 45, "methods flattened behind switch (state.hashCode() ^ k) dispatchers: "
+            + p.metric("black.flattened_methods") + " methods, " + p.metric("black.dispatchers") + " dispatchers");
+        rule.add(p.metric("black.flattened_methods") >= 3, 30, "three or more flattened methods");
         rule.into(out);
     }
 

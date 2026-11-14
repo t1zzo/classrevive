@@ -28,7 +28,9 @@ public final class AutoDeobfuscation {
         "Radon", dev.classrevive.transforms.radon.RadonReverser.ID,
         "Zelix KlassMaster 27", dev.classrevive.transforms.skid.ZkmReverser.ID,
         // Zelix KlassMaster for Java 7 and later targets: invokedynamic decryption and its key generator (same pass).
-        "Zelix KlassMaster", dev.classrevive.transforms.skid.ZkmReverser.ID);
+        "Zelix KlassMaster", dev.classrevive.transforms.skid.ZkmReverser.ID,
+        // Android dex flattening keyed by a string hash: the general control-flow pass threads its dispatchers.
+        "BlackObfuscator", dev.classrevive.transforms.flow.ControlFlowPass.ID);
     /** Verifier errors that mean the bytecode itself is invalid, as opposed to a class it refers to being absent. */
     static final Set<String> BYTECODE_ERRORS = Set.of("java.lang.VerifyError", "java.lang.ClassFormatError",
         "java.lang.UnsupportedClassVersionError", "java.lang.ClassCircularityError", "java.lang.IncompatibleClassChangeError",

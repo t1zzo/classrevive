@@ -26,7 +26,10 @@ Rewrites:
   (`x - x`, `x ^ x`, `x == x`) and nullness.
 - **Flattened switches**: an edge into a dispatcher (side-effect-free code from a label to a switch) on which the key is
   one constant goes straight to that case. An edge whose state is not constant is left alone and counted
-  (`dispatcher edges left (state not constant)`): ambiguous means refused.
+  (`dispatcher edges left (state not constant)`): ambiguous means refused. A dispatcher may also compute its key from a
+  constant string (`String.hashCode()`, `length()`) and keep intermediate values in locals, as BlackObfuscator's
+  `switch (s.hashCode() ^ k)` does once dex2jar wrote it as locals: such a store is skipped only when nothing outside the
+  dispatcher reads that local and the dispatcher has no other way in than its first label.
 - **Flow by exception**: `new X; dup; invokespecial X.<init>()V; athrow` on an empty stack, whose first matching handler
   in the method (by the exception table order and `X`'s fully known superclass chain) starts by discarding the exception
   (`pop`, or `astore` to a local nothing reads), becomes `goto` past the discard. `X` must be a JDK class, or input
@@ -97,7 +100,10 @@ parameters and `invokedynamic` references, which the dedicated reversals handle 
 are closer to their bytecode (different bodies 28 → 9), but a file is lost on Skidfuscator and Aidsfuscator's whole
 compilation gets worse (recorded in the failure log).
 
-## `--deobfuscate auto`: not included
+## `--deobfuscate auto`: only for BlackObfuscator
+
+`decompile` applies the pass on its own when the diagnosis names BlackObfuscator with HIGH confidence (an Android dex
+obfuscator that only flattens control flow, so this pass is its reversal). For anything else it stays opt-in:
 
 The pass cannot hurt the scoreboard (it changes nothing there), but on the obfuscated corpus it does not improve the
 answer-key results by itself, it costs one worker JVM and a link check per input, and after the dedicated reversals it finds

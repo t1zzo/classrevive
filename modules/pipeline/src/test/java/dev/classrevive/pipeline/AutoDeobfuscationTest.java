@@ -89,6 +89,7 @@ class AutoDeobfuscationTest {
         var zkm = new ObfuscatorClassifier.Hypothesis("Zelix KlassMaster", 90, "HIGH", List.of());
         assertEquals("zkm", AutoDeobfuscation.PASSES.get(AutoDeobfuscation.candidate(
             new ObfuscatorClassifier.Result("SUGGESTED", List.of(zkm))).orElseThrow().obfuscator()));
+        assertEquals("control-flow", AutoDeobfuscation.PASSES.get("BlackObfuscator"));
         assertEquals("aidsfuscator", AutoDeobfuscation.PASSES.get(AutoDeobfuscation.candidate(
             new ObfuscatorClassifier.Result("SUGGESTED", List.of(aids))).orElseThrow().obfuscator()));
         // Phase 2DK

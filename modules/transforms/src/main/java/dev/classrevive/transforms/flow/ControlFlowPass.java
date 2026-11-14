@@ -318,6 +318,7 @@ public final class ControlFlowPass implements Opcodes {
      * stack as it found it; so skipping it changes nothing but the path.
      */
     private boolean thread(MethodNode method, FlowAnalyzer.Result result, Stats stats, boolean evidenceSoFar) {
+        currentMethod = method;
         var insns = result.insns(); var frames = result.frames();
         int threaded = 0, ambiguous = 0, strong = 0;
         var strongKeys = new boolean[1];
@@ -381,9 +382,46 @@ public final class ControlFlowPass implements Opcodes {
         var insn = Cfg.start(label);
         for (int steps = 0; insn != null && steps < 32; steps++, insn = Cfg.nextReal(insn)) {
             if (insn instanceof TableSwitchInsnNode || insn instanceof LookupSwitchInsnNode) return true;
-            if (!quiet(insn, null)) return false;
+            if (!quiet(insn, null) && !scratchStore(label, insn)) return false;
         }
         return false;
+    }
+
+    private MethodNode currentMethod;
+
+    /** Whether a jump, a switch or an exception handler goes to {@code label}. */
+    private static boolean targeted(MethodNode method, LabelNode label) {
+        for (var insn : method.instructions) {
+            if (insn instanceof JumpInsnNode jump && jump.label == label) return true;
+            if (insn instanceof LookupSwitchInsnNode lookup && (lookup.dflt == label || lookup.labels.contains(label))) return true;
+            if (insn instanceof TableSwitchInsnNode table && (table.dflt == label || table.labels.contains(label))) return true;
+        }
+        for (var block : method.tryCatchBlocks) if (block.handler == label) return true;
+        return false;
+    }
+
+    /**
+     * A store into a local that only the dispatcher itself reads (BlackObfuscator keeps the state's hash and the switch key
+     * in such locals): skipping the dispatcher leaves the local stale, and nothing outside the dispatcher can see it.
+     */
+    private boolean scratchStore(LabelNode label, AbstractInsnNode insn) {
+        if (!(insn instanceof VarInsnNode store) || store.getOpcode() < ISTORE || store.getOpcode() > ASTORE || currentMethod == null) return false;
+        var list = currentMethod.instructions;
+        int from = list.indexOf(label), to = -1;
+        for (var at = Cfg.start(label); at != null; at = Cfg.nextReal(at))
+            if (at instanceof TableSwitchInsnNode || at instanceof LookupSwitchInsnNode) { to = list.indexOf(at); break; }
+        if (to < 0) return false;
+        // One way in: a jump into the middle of the dispatcher would read the local the skipped store should have set.
+        for (int at = from + 1; at < to; at++)
+            if (list.get(at) instanceof LabelNode inner && targeted(currentMethod, inner)) return false;
+        for (var other : list) {
+            boolean reads = other instanceof VarInsnNode load && load.var == store.var && load.getOpcode() >= ILOAD && load.getOpcode() <= ALOAD
+                || other instanceof IincInsnNode inc && inc.var == store.var;
+            if (!reads) continue;
+            int at = list.indexOf(other);
+            if (at < from || at > to) return false;
+        }
+        return true;
     }
 
     /** The case label a dispatcher goes to from {@code frame}, or null when the key is not decided. */
@@ -406,7 +444,7 @@ public final class ControlFlowPass implements Opcodes {
                     int at = lookup.keys.indexOf(value);
                     return at >= 0 ? lookup.labels.get(at) : lookup.dflt;
                 }
-                if (!quiet(insn, frame)) return null;
+                if (!quiet(insn, frame) && !scratchStore(label, insn)) return null;
                 frame = analyzer.execute(frame, insn);
                 insn = Cfg.nextReal(insn);
             }
@@ -428,6 +466,10 @@ public final class ControlFlowPass implements Opcodes {
         if (op >= IADD && op <= DREM || op >= INEG && op <= DCMPG) return true;
         if (insn instanceof FieldInsnNode field && op == GETSTATIC)
             return field.owner.equals(currentOwner) && facts.constant(field.owner, field.name, field.desc) != null;
+        // String is final: hashCode() and length() of a string cannot throw once it is known not to be null (a constant).
+        if (insn instanceof MethodInsnNode call && op == INVOKEVIRTUAL && call.owner.equals("java/lang/String")
+            && (call.name.equals("hashCode") || call.name.equals("length")) && call.desc.equals("()I"))
+            return frame == null || frame.getStack(frame.getStackSize() - 1).string != null;
         return false;
     }
 
