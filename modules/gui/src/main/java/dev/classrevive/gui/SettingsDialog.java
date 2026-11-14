@@ -5,7 +5,11 @@ import java.awt.*;
 import java.nio.file.Path;
 import javax.swing.*;
 
-/** Phase G3: appearance, decompile defaults and folders. Theme and font size apply at once; the language on restart. */
+/**
+ * Phase G3: appearance, decompile defaults and folders. Theme and font size apply at once; the language on restart. Phase
+ * G8: sections with captions and a hint under the choices that are not obvious, compact number fields, and a button that
+ * opens the results folder.
+ */
 final class SettingsDialog extends JDialog {
     private final JComboBox<GuiSettings.ThemeChoice> theme = new JComboBox<>(GuiSettings.ThemeChoice.values());
     private final JComboBox<GuiSettings.Language> language = new JComboBox<>(GuiSettings.Language.values());
@@ -32,27 +36,37 @@ final class SettingsDialog extends JDialog {
         folder.setText(settings.workspaceDirectory().toString());
 
         var form = new JPanel(new GridBagLayout());
-        form.setBorder(Ui.padding(16, 18, 8, 18));
+        form.setBorder(Ui.padding(18, 22, 10, 22));
         var at = new GridBagConstraints();
         at.anchor = GridBagConstraints.WEST;
-        at.insets = new Insets(4, 0, 4, 12);
+        at.insets = new Insets(4, 0, 4, 16);
         int[] row = {0};
-        Runnable gap = () -> row[0]++;
         java.util.function.BiConsumer<String,JComponent> line = (label, field) -> {
-            at.gridy = row[0]++; at.gridx = 0; at.gridwidth = 1; at.fill = GridBagConstraints.NONE; at.weightx = 0;
-            form.add(new JLabel(label), at);
-            at.gridx = 1; at.fill = GridBagConstraints.HORIZONTAL; at.weightx = 1;
+            at.gridy = row[0]++; at.gridx = 0; at.gridwidth = 1; at.fill = GridBagConstraints.NONE; at.weightx = 0; at.insets = new Insets(4, 0, 4, 16);
+            form.add(label.isEmpty() ? new JLabel() : new JLabel(label), at);
+            at.gridx = 1; at.weightx = 1;
+            at.fill = field instanceof JSpinner ? GridBagConstraints.NONE : GridBagConstraints.HORIZONTAL;
             form.add(field, at);
         };
-        java.util.function.Consumer<String> heading = text -> {
-            at.gridy = row[0]++; at.gridx = 0; at.gridwidth = 2; at.fill = GridBagConstraints.NONE;
-            var label = Ui.heading(text, 13f);
-            label.setBorder(Ui.padding(row[0] == 1 ? 0 : 10, 0, 2, 0));
-            form.add(label, at);
+        java.util.function.Consumer<String> note = text -> {
+            at.gridy = row[0]++; at.gridx = 1; at.gridwidth = 1; at.fill = GridBagConstraints.HORIZONTAL; at.weightx = 1; at.insets = new Insets(0, 0, 4, 0);
+            var area = Ui.text(text, true);
+            area.setColumns(36);
+            form.add(area, at);
         };
+        java.util.function.Consumer<String> heading = text -> {
+            at.gridy = row[0]++; at.gridx = 0; at.gridwidth = 2; at.fill = GridBagConstraints.HORIZONTAL; at.weightx = 1;
+            at.insets = new Insets(row[0] == 1 ? 0 : 16, 0, 6, 0);
+            var label = Ui.caption(text);
+            label.setBorder(BorderFactory.createCompoundBorder(Ui.bottomLine(), Ui.padding(0, 0, 6, 0)));
+            form.add(label, at);
+            at.gridwidth = 1;
+        };
+        for (var spinner : java.util.List.of(fontSize, timeout)) spinner.setPreferredSize(new Dimension(96, spinner.getPreferredSize().height));
         heading.accept(Text.t("settings.appearance"));
         line.accept(Text.t("settings.theme"), theme);
         line.accept(Text.t("settings.language"), language);
+        note.accept(Text.t("settings.language.note"));
         line.accept(Text.t("settings.fontSize"), fontSize);
         heading.accept(Text.t("settings.decompile"));
         line.accept(Text.t("settings.profile"), profile);
@@ -61,13 +75,23 @@ final class SettingsDialog extends JDialog {
         line.accept("", cache);
         heading.accept(Text.t("settings.folders"));
         var choose = new JButton(Text.t("settings.choose"));
+        var reveal = new JButton(Icons.of(Icons.Glyph.FOLDER, 14));
+        reveal.setToolTipText(Text.t("settings.openFolder"));
+        reveal.addActionListener(e -> {
+            try {
+                var path = Path.of(folder.getText().strip());
+                java.nio.file.Files.createDirectories(path);
+                Ui.open(this, path);
+            } catch (Exception invalid) { Ui.error(this, Text.t("settings.title"), Text.t("settings.badFolder"), null); }
+        });
         var folderRow = new JPanel(new BorderLayout(6, 0));
         folderRow.add(folder, BorderLayout.CENTER);
-        folderRow.add(choose, BorderLayout.EAST);
+        var folderButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        folderButtons.add(choose);
+        folderButtons.add(reveal);
+        folderRow.add(folderButtons, BorderLayout.EAST);
         line.accept(Text.t("settings.workspace"), folderRow);
-        gap.run();
-        at.gridy = row[0]; at.gridx = 0; at.gridwidth = 2;
-        form.add(Ui.muted("<html><body style='width:420px'>" + Ui.escape(Text.t("settings.workspace.note")) + "</body></html>"), at);
+        note.accept(Text.t("settings.workspace.note"));
         choose.addActionListener(e -> {
             var chooser = new JFileChooser(folder.getText());
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -75,7 +99,7 @@ final class SettingsDialog extends JDialog {
         });
 
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        buttons.setBorder(Ui.padding(8, 18, 14, 18));
+        buttons.setBorder(BorderFactory.createCompoundBorder(Ui.topLine(), Ui.padding(12, 22, 14, 22)));
         var cancel = new JButton(Text.t("dialog.cancel"));
         var ok = Ui.primary(Ui.action(Text.t("dialog.save"), null, null, () -> save(settings)));
         buttons.add(cancel); buttons.add(ok);

@@ -22,29 +22,40 @@ public final class ClassReviveApp {
 
     /** Opens the main window on the event thread, then {@code file} when given; returns at once. */
     public static void launch(Path file) {
+        // Phase G8: native menu bar and appearance on macOS; set before the first AWT class loads.
+        if (Ui.MAC) {
+            System.setProperty("apple.laf.useScreenMenuBar", "true");
+            System.setProperty("apple.awt.application.name", "ClassRevive");
+            System.setProperty("apple.awt.application.appearance", "system");
+        }
         var settings = GuiSettings.load();
         Text.use(settings.language());
+        // Phase G8: listing the installed fonts (for the code font) takes a moment on first use; it starts now, in the
+        // background, instead of when the first panel asks for it on the event thread.
+        Thread.ofVirtual().name("classrevive-fonts").start(() -> Theme.codeFont(settings.fontSize()));
+        // Phase G8: "follow the system" asks Windows for its app mode here, not on the event thread.
+        boolean dark = Theme.dark(settings.theme());
         SwingUtilities.invokeLater(() -> {
-            Theme.install(settings.theme());
+            Theme.install(dark);
             var window = new MainWindow(settings);
             window.setVisible(true);
             if (file != null) window.openPath(file.toAbsolutePath().normalize());
         });
     }
 
-    /** The application logo at {@code size} pixels: a near-black rounded square with orange braces. */
+    /** The application logo at {@code size} pixels: a near-black rounded square with orange braces (flat since Phase G8). */
     static Image logo(int size) {
         var image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         var g = image.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
         g.scale(size / 64.0, size / 64.0);
-        g.setPaint(new GradientPaint(0, 0, new Color(0x26262B), 64, 64, new Color(0x0E0E10)));
+        g.setColor(new Color(0x18181B));
         g.fill(new RoundRectangle2D.Double(2, 2, 60, 60, 18, 18));
-        g.setColor(new Color(0x3A3A40));
+        g.setColor(new Color(0x34343A));
         g.setStroke(new BasicStroke(1.5f));
         g.draw(new RoundRectangle2D.Double(2.75, 2.75, 58.5, 58.5, 17, 17));
-        g.setPaint(new GradientPaint(0, 12, new Color(0xFFA54A), 0, 52, new Color(0xFF7A0F)));
+        g.setColor(new Color(0xFF8A1F));
         g.setStroke(new BasicStroke(5.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         var left = new Path2D.Double();
         left.moveTo(24, 15); left.curveTo(17, 15, 18, 22, 18, 26); left.curveTo(18, 30, 16, 32, 13, 32);

@@ -46,6 +46,11 @@ final class MainWindow extends JFrame {
     private final JSplitPane vertical, inner, outer;
     private final JLabel message = new JLabel(" ");
     private final JLabel caret = Ui.muted("");
+    /** Phase G8: the Java heap in use, so large inputs show what they cost; refreshed every 3 s while the window exists. */
+    private final JLabel memory = Ui.faint("");
+    private final javax.swing.Timer memoryClock = new javax.swing.Timer(3000, e -> refreshMemory());
+    private final StatusDot statusDot = new StatusDot();
+    private JButton cancelButton;
     private final ObfuscationBanner banner = new ObfuscationBanner(this);
     private final JProgressBar busy = new JProgressBar();
     private final List<Action> workspaceActions = new ArrayList<>(), resultActions = new ArrayList<>();
@@ -58,7 +63,7 @@ final class MainWindow extends JFrame {
 
     final Action open, openResult, decompile, decompileOptions, cancel, goToClass, searchCode, exportProject, exportSources, openReport,
         openFolder, closeWorkspace, find, closeTab, copyName, settingsAction, overview, zoomIn, zoomOut, shortcuts, about, exit,
-        back, forward, compare, findUsages, callHierarchy;
+        back, forward, compare, findUsages, callHierarchy, toggleTheme, closeOthers, closeAll;
     /** Phase G4: where the user was (a class tab and its caret), for Alt+Left and Alt+Right. */
     record Place(String className, int caret) {}
     private final Deque<Place> backStack = new ArrayDeque<>(), forwardStack = new ArrayDeque<>();
@@ -98,10 +103,14 @@ final class MainWindow extends JFrame {
         compare = Ui.action(Text.t("action.compare"), Icons.of(Icons.Glyph.COMPARE), Ui.key("ctrl D"), this::compareCurrent);
         findUsages = Ui.action(Text.t("action.findUsages"), null, Ui.key("alt F7"), () -> usagesOf(false));
         callHierarchy = Ui.action(Text.t("action.callHierarchy"), null, Ui.key("ctrl alt H"), () -> usagesOf(true));
+        toggleTheme = Ui.action(Text.t("action.toggleTheme"), Icons.of(Theme.dark() ? Icons.Glyph.SUN : Icons.Glyph.MOON), null,
+            () -> applyTheme(Theme.dark() ? GuiSettings.ThemeChoice.LIGHT : GuiSettings.ThemeChoice.DARK));
+        closeOthers = Ui.action(Text.t("action.closeOthers"), null, null, () -> closeTabs(tabs.getSelectedIndex()));
+        closeAll = Ui.action(Text.t("action.closeAll"), null, null, () -> closeTabs(-1));
         workspaceActions.addAll(List.of(decompile, decompileOptions, goToClass, closeWorkspace, findUsages, callHierarchy));
         resultActions.addAll(List.of(searchCode, exportProject, exportSources, openReport, openFolder, overview, compare));
 
-        welcome = new WelcomePanel(settings, open, openResult, this::openPath);
+        welcome = new WelcomePanel(settings, open, openResult, this::openPath, () -> { settings.clearRecent(); saveSettings(); refreshRecent(); });
         inspector = new InspectorPanel(() -> decompile(false));
         explorer = new ExplorerPanel(this::openClass, this::openResource, this::selected);
         activity = new ActivityPanel(cancel);
@@ -118,8 +127,16 @@ final class MainWindow extends JFrame {
         tabs.putClientProperty(FlatClientProperties.TABBED_PANE_SCROLL_BUTTONS_POLICY, FlatClientProperties.TABBED_PANE_POLICY_AS_NEEDED);
         tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         tabs.addChangeListener(e -> caret.setText(tabs.getSelectedComponent() instanceof CodeTab tab ? tab.caretText() : ""));
-        var emptyTabs = new JPanel(new GridBagLayout());
-        emptyTabs.add(Ui.muted(Text.t("tabs.empty")));
+        tabs.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent event) { tabMenu(event); }
+            @Override public void mouseReleased(MouseEvent event) { tabMenu(event); }
+            @Override public void mouseClicked(MouseEvent event) {
+                // Phase G8: a middle click closes a tab, as in browsers and IDEs.
+                int index = tabs.indexAtLocation(event.getX(), event.getY());
+                if (index >= 0 && SwingUtilities.isMiddleMouseButton(event)) tabs.removeTabAt(index);
+            }
+        });
+        var emptyTabs = emptyEditor();
         var editorArea = new JPanel(new CardLayout());
         editorArea.add(emptyTabs, "empty");
         editorArea.add(tabs, "tabs");
@@ -143,7 +160,7 @@ final class MainWindow extends JFrame {
         explorer.setPreferredSize(new Dimension(300, 400));
         outer = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, explorer, inner);
         outer.setBorder(BorderFactory.createEmptyBorder());
-        center.add(welcome, "welcome");
+        center.add(welcome.scroller(), "welcome");
         center.add(outer, "work");
 
         var root = new JPanel(new BorderLayout());
@@ -156,6 +173,18 @@ final class MainWindow extends JFrame {
         setContentPane(root);
         setJMenuBar(menus());
         setTransferHandler(new FileDrop());
+        // Phase G8: the start screen's drop zone lights up while a file is dragged over the window.
+        if (getDropTarget() != null) {
+            try {
+                getDropTarget().addDropTargetListener(new java.awt.dnd.DropTargetAdapter() {
+                    @Override public void dragEnter(java.awt.dnd.DropTargetDragEvent event) { welcome.dragging(event.isDataFlavorSupported(DataFlavor.javaFileListFlavor)); }
+                    @Override public void dragExit(java.awt.dnd.DropTargetEvent event) { welcome.dragging(false); }
+                    @Override public void drop(java.awt.dnd.DropTargetDropEvent event) { welcome.dragging(false); }
+                });
+            } catch (java.util.TooManyListenersException single) { /* the highlight is optional */ }
+        }
+        memoryClock.start();
+        refreshMemory();
         inspectorItem.setSelected(settings.showInspector());
         bottomItem.setSelected(settings.showActivity());
         refreshRecent();
@@ -163,7 +192,7 @@ final class MainWindow extends JFrame {
         setSize(1380, 860);
         setMinimumSize(new Dimension(960, 600));
         setLocationRelativeTo(null);
-        SwingUtilities.invokeLater(() -> { outer.setDividerLocation(300); inner.setDividerLocation(inner.getWidth() - 300); vertical.setDividerLocation(vertical.getHeight() - 210); });
+        SwingUtilities.invokeLater(() -> { outer.setDividerLocation(300); inner.setDividerLocation(inner.getWidth() - 300); vertical.setDividerLocation(vertical.getHeight() - 236); });
         status(Text.t("status.ready"));
     }
 
@@ -243,11 +272,12 @@ final class MainWindow extends JFrame {
         explorer.show(opened);
         inspector.show(opened, null);
         search.attach(opened);
-        activity.reset();
+        activity.reset(opened.decompiled() ? Ui.visible(opened.displayName()) : null);
         banner.show(opened);
         cards.show(center, "work");
         applyPanels();
         setTitle("ClassRevive — " + Ui.visible(opened.displayName()));
+        statusDot.set(resultColor());
         refreshActions();
         if (opened.decompiled()) { showOverview(); status(summary(opened.result())); }
         else status(Text.t("status.opened", opened.classes().size(), Ui.visible(opened.displayName())));
@@ -267,6 +297,7 @@ final class MainWindow extends JFrame {
         welcome.refresh();
         cards.show(center, "welcome");
         setTitle("ClassRevive");
+        statusDot.set(null);
         refreshActions();
         status(Text.t("status.ready"));
     }
@@ -403,7 +434,10 @@ final class MainWindow extends JFrame {
         explorer.refresh();
         inspector.show(target, explorer.selected());
         search.attach(target);
-        for (int i = 0; i < tabs.getTabCount(); i++) if (tabs.getComponentAt(i) instanceof CodeTab tab) tab.refreshViews();
+        for (int i = 0; i < tabs.getTabCount(); i++) if (tabs.getComponentAt(i) instanceof CodeTab tab) {
+            tab.refreshViews();
+            if (tab.classItem() != null) tabs.setIconAt(i, tabIcon(tab.classItem()));
+        }
         refreshActions();
         showOverview();
         settings.remember(index.output());
@@ -447,8 +481,8 @@ final class MainWindow extends JFrame {
             tab = CodeTab.forClass(workspace, item, settings, caret::setText);
             tab.navigator(name -> workspace.classItem(name).ifPresent(this::openClass));
             tab.contextActions(List.of(findUsages, callHierarchy));
-            char kind = ExplorerPanel.kind(item);
-            addTab(tab, Icons.kind(kind, ExplorerPanel.kindColor(kind), null));
+            tab.onDecompile(decompile);
+            addTab(tab, tabIcon(item));
         }
         tabs.setSelectedComponent(tab);
         return tab;
@@ -528,7 +562,7 @@ final class MainWindow extends JFrame {
     private void showOverview() {
         if (result() == null) return;
         for (int i = 0; i < tabs.getTabCount(); i++) if (tabs.getComponentAt(i) instanceof OverviewPanel) tabs.removeTabAt(i--);
-        var panel = new OverviewPanel(workspace, List.of(exportProject, openReport, openFolder));
+        var panel = new OverviewPanel(workspace, List.of(exportProject, openReport, openFolder), level -> { explorer.showLevel(level); explorer.requestFocusInWindow(); });
         tabs.insertTab(Text.t("tab.overview"), Icons.of(Icons.Glyph.REPORT, 14), panel, null, 0);
         tabs.setSelectedIndex(0);
     }
@@ -791,8 +825,11 @@ final class MainWindow extends JFrame {
         settings.theme(choice);
         saveSettings();
         Theme.switchTo(choice);
+        toggleTheme.putValue(Action.SMALL_ICON, Icons.of(Theme.dark() ? Icons.Glyph.SUN : Icons.Glyph.MOON));
         applyLook();
+        themeItems.forEach((value, item) -> item.setSelected(value == choice));
     }
+    private final Map<GuiSettings.ThemeChoice,JRadioButtonMenuItem> themeItems = new EnumMap<>(GuiSettings.ThemeChoice.class);
 
     private void applyLook() {
         for (int i = 0; i < tabs.getTabCount(); i++) {
@@ -800,7 +837,10 @@ final class MainWindow extends JFrame {
             if (tabs.getComponentAt(i) instanceof CompareTab compareTab) compareTab.applyLook();
         }
         explorer.refresh();
+        activity.applyLook();
+        welcome.refresh();
         if (workspace != null) inspector.show(workspace, explorer.selected());
+        statusDot.set(running != null ? Theme.ACCENT : resultColor());
         repaint();
     }
 
@@ -815,7 +855,7 @@ final class MainWindow extends JFrame {
         inspector.setVisible(settings.showInspector());
         bottom.setVisible(settings.showActivity());
         if (settings.showInspector()) SwingUtilities.invokeLater(() -> inner.setDividerLocation(inner.getWidth() - 300));
-        if (settings.showActivity()) SwingUtilities.invokeLater(() -> vertical.setDividerLocation(vertical.getHeight() - 210));
+        if (settings.showActivity()) SwingUtilities.invokeLater(() -> vertical.setDividerLocation(vertical.getHeight() - 236));
         inner.revalidate();
         vertical.revalidate();
     }
@@ -825,27 +865,69 @@ final class MainWindow extends JFrame {
         bottom.setSelectedComponent(panel);
     }
 
+    /** Phase G8: the shortcuts in four groups, each written as key caps for this platform. */
     private void showShortcuts() {
-        String[][] rows = {
-            {"Ctrl+O", Text.t("action.open")}, {"Ctrl+Shift+O", Text.t("action.openResult")}, {"F5", Text.t("action.decompile")},
-            {"Shift+F5", Text.t("action.decompileOptions")}, {"Ctrl+Shift+F5", Text.t("action.cancel")}, {"Ctrl+N", Text.t("action.goToClass")},
-            {"Ctrl+Shift+F", Text.t("action.search")}, {"Ctrl+F / F3", Text.t("action.find")}, {"Ctrl+G", Text.t("code.goToLine.title")},
-            {"Ctrl+W", Text.t("action.closeTab")}, {"Alt+← / Alt+→", Text.t("action.back") + " / " + Text.t("action.forward")},
-            {"Ctrl+D", Text.t("action.compare")}, {"Alt+F7", Text.t("action.findUsages")}, {"Ctrl+Alt+H", Text.t("action.callHierarchy")}, {"Ctrl+" + Text.t("shortcuts.click"), Text.t("shortcuts.openReferenced")}, {"Ctrl+Shift+H", Text.t("action.overview")}, {"Ctrl+E", Text.t("action.exportProject")},
-            {"Ctrl+= / Ctrl+-", Text.t("action.zoomIn") + " / " + Text.t("action.zoomOut")}, {"Ctrl+,", Text.t("action.settings")}};
-        var table = new JTable(rows, new String[] {Text.t("shortcuts.key"), Text.t("shortcuts.action")});
-        table.setEnabled(false);
-        table.setRowHeight(24);
-        table.getColumnModel().getColumn(0).setPreferredWidth(130);
-        table.getColumnModel().getColumn(1).setPreferredWidth(300);
-        var scroll = new JScrollPane(table);
-        scroll.setPreferredSize(new Dimension(460, 24 * rows.length + 30));
-        JOptionPane.showMessageDialog(this, scroll, Text.t("action.shortcuts"), JOptionPane.PLAIN_MESSAGE);
+        String click = Text.t("shortcuts.click");
+        Object[][][] groups = {
+            {{"menu.file"}, {"ctrl O", "action.open"}, {"ctrl shift O", "action.openResult"}, {"ctrl E", "action.exportProject"}, {"ctrl COMMA", "action.settings"}},
+            {{"menu.decompile"}, {"F5", "action.decompile"}, {"shift F5", "action.decompileOptions"}, {"ctrl shift F5", "action.cancel"}},
+            {{"menu.navigate"}, {"ctrl N", "action.goToClass"}, {"ctrl shift F", "action.search"}, {"alt F7", "action.findUsages"},
+                {"ctrl alt H", "action.callHierarchy"}, {"ctrl+" + click, "shortcuts.openReferenced"}, {"alt LEFT", "action.back"},
+                {"alt RIGHT", "action.forward"}, {"ctrl D", "action.compare"}, {"ctrl shift H", "action.overview"}},
+            {{"shortcuts.editor"}, {"ctrl F", "action.find"}, {"F3", "find.next"}, {"shift F3", "find.previous"}, {"ctrl G", "code.goToLine.title"},
+                {"ctrl W", "action.closeTab"}, {"ctrl EQUALS", "action.zoomIn"}, {"ctrl MINUS", "action.zoomOut"}}};
+        var columns = new JPanel(new GridLayout(1, 2, 28, 0));
+        var left = new JPanel(); left.setLayout(new BoxLayout(left, BoxLayout.Y_AXIS));
+        var right = new JPanel(); right.setLayout(new BoxLayout(right, BoxLayout.Y_AXIS));
+        for (int g = 0; g < groups.length; g++) {
+            var column = g == 2 ? right : left;
+            var group = groups[g];
+            var title = Ui.caption(Text.t((String) group[0][0]));
+            title.setAlignmentX(LEFT_ALIGNMENT);
+            if (column.getComponentCount() > 0) column.add(Box.createVerticalStrut(16));
+            column.add(title);
+            column.add(Box.createVerticalStrut(6));
+            var rows = new JPanel(new GridBagLayout());
+            rows.setAlignmentX(LEFT_ALIGNMENT);
+            var at = new GridBagConstraints();
+            at.insets = new Insets(3, 0, 3, 0);
+            for (int i = 1; i < group.length; i++) {
+                String spec = (String) group[i][0];
+                at.gridy = i; at.gridx = 0; at.weightx = 1; at.anchor = GridBagConstraints.WEST; at.fill = GridBagConstraints.HORIZONTAL;
+                rows.add(new JLabel(Text.t((String) group[i][1]).replace("\u2026", "")), at);
+                at.gridx = 1; at.weightx = 0; at.anchor = GridBagConstraints.EAST; at.fill = GridBagConstraints.NONE;
+                rows.add(Ui.keycaps(spec.contains("+") ? Ui.shortcut(spec.substring(0, spec.indexOf('+'))) + "+" + spec.substring(spec.indexOf('+') + 1) : Ui.shortcut(spec)), at);
+            }
+            rows.setMaximumSize(new Dimension(Integer.MAX_VALUE, rows.getPreferredSize().height));
+            column.add(rows);
+        }
+        left.add(Box.createVerticalGlue());
+        right.add(Box.createVerticalGlue());
+        columns.add(left);
+        columns.add(right);
+        columns.setBorder(Ui.padding(4, 4, 4, 4));
+        JOptionPane.showMessageDialog(this, columns, Text.t("action.shortcuts"), JOptionPane.PLAIN_MESSAGE);
     }
 
+    /** Phase G8: the logo, the version, what ClassRevive does and the safety promise, laid out like the rest of the app. */
     private void showAbout() {
-        JOptionPane.showMessageDialog(this, "<html><body style='width:380px'><h2>ClassRevive</h2>" + Ui.escape(Text.t("about.text", ClassReviveApp.VERSION))
-            + "</body></html>", Text.t("action.about"), JOptionPane.PLAIN_MESSAGE, new ImageIcon(ClassReviveApp.logo(48)));
+        var panel = new JPanel(new BorderLayout(18, 0));
+        panel.add(new JLabel(new ImageIcon(ClassReviveApp.logo(64))), BorderLayout.WEST);
+        var text = new Ui.Column();
+        text.add(Ui.styled("ClassRevive", "h2"));
+        text.add(Ui.muted(Text.t("welcome.version", ClassReviveApp.VERSION)));
+        text.add(Box.createVerticalStrut(10));
+        var body = Ui.text(Text.t("about.text", ClassReviveApp.VERSION), false);
+        body.setColumns(34);
+        text.add(body);
+        text.add(Box.createVerticalStrut(10));
+        var safety = Ui.muted(Text.t("welcome.safety"));
+        safety.setIcon(Icons.of(Icons.Glyph.SHIELD, 14, Theme.ACCENT));
+        safety.setIconTextGap(8);
+        text.add(safety);
+        panel.add(text, BorderLayout.CENTER);
+        panel.setPreferredSize(new Dimension(500, panel.getPreferredSize().height));
+        JOptionPane.showMessageDialog(this, panel, Text.t("action.about"), JOptionPane.PLAIN_MESSAGE);
     }
 
     private void exit() {
@@ -872,40 +954,62 @@ final class MainWindow extends JFrame {
 
     // ----- chrome --------------------------------------------------------------------------------------------------
 
+    /**
+     * Phase G8: one command bar in four groups: open, history, decompile (the main action, with its options attached), and
+     * find. Cancel only shows while a decompile runs; export, the theme switch and the settings sit on the right.
+     */
     private JComponent toolbar() {
         var bar = new JToolBar();
         bar.setFloatable(false);
-        bar.setBorder(BorderFactory.createCompoundBorder(Ui.bottomLine(), Ui.padding(4, 8, 4, 8)));
-        var openButton = new JButton(open);
-        openButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        bar.setBorder(BorderFactory.createCompoundBorder(Ui.bottomLine(), Ui.padding(5, 8, 5, 8)));
+        var openButton = Ui.toolButton(open);
         bar.add(openButton);
         bar.add(iconOnly(openResult));
-        bar.addSeparator();
+        bar.add(divider());
         bar.add(iconOnly(back));
         bar.add(iconOnly(forward));
-        bar.addSeparator();
-        var run = Ui.primary(decompile);
-        run.setFocusable(false);
-        var holder = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        holder.setOpaque(false);
-        holder.add(run);
-        holder.setMaximumSize(holder.getPreferredSize());
-        bar.add(holder);
-        bar.add(Box.createHorizontalStrut(4));
-        bar.add(iconOnly(cancel));
-        bar.addSeparator();
+        bar.add(divider());
+        var options = new JPopupMenu();
+        options.add(decompileOptions);
+        options.add(decompile).setIcon(Icons.of(Icons.Glyph.PLAY, 14));
+        var run = new Ui.SplitButton(decompile, options);
+        bar.add(run);
+        bar.add(Box.createHorizontalStrut(6));
+        cancelButton = new JButton(cancel);
+        cancelButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
+        cancelButton.putClientProperty(FlatClientProperties.STYLE, "foreground: #F0605A; font: $semibold.font");
+        cancelButton.setIcon(Icons.of(Icons.Glyph.STOP, 14, Theme.level(ResultIndex.Level.UNVERIFIED)));
+        cancelButton.setText(Text.t("toolbar.cancel"));
+        cancelButton.setFocusable(false);
+        cancelButton.setVisible(false);
+        bar.add(cancelButton);
+        bar.add(divider());
         bar.add(iconOnly(goToClass));
         bar.add(iconOnly(searchCode));
         bar.add(iconOnly(compare));
         bar.add(Box.createHorizontalGlue());
         bar.add(Ui.toolButton(exportProject));
+        bar.add(divider());
+        bar.add(iconOnly(toggleTheme));
         bar.add(iconOnly(settingsAction));
         return bar;
+    }
+
+    /** A short vertical hairline between toolbar groups. */
+    private static JComponent divider() {
+        var line = new JComponent() {
+            @Override protected void paintComponent(Graphics g) { g.setColor(Theme.line()); g.fillRect(getWidth() / 2, 6, 1, getHeight() - 12); }
+        };
+        var size = new Dimension(17, 28);
+        line.setPreferredSize(size);
+        line.setMaximumSize(size);
+        return line;
     }
 
     private static JButton iconOnly(Action action) {
         var button = Ui.toolButton(action);
         button.setHideActionText(true);
+        button.setMargin(new Insets(5, 6, 5, 6));
         return button;
     }
 
@@ -931,6 +1035,7 @@ final class MainWindow extends JFrame {
         for (var choice : GuiSettings.ThemeChoice.values()) {
             var item = new JRadioButtonMenuItem(Text.t("theme." + choice.name()), settings.theme() == choice);
             item.addActionListener(e -> applyTheme(choice));
+            themeItems.put(choice, item);
             group.add(item);
             theme.add(item);
         }
@@ -947,19 +1052,113 @@ final class MainWindow extends JFrame {
         return bar;
     }
 
+    /** Phase G8: a state dot and the message on the left; activity, memory and the caret position on the right. */
     private JComponent statusBar() {
-        var bar = new JPanel(new BorderLayout(Ui.GAP, 0));
-        bar.setBorder(BorderFactory.createCompoundBorder(Ui.topLine(), Ui.padding(3, 10, 3, 10)));
-        bar.add(message, BorderLayout.CENTER);
-        var right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        var bar = new JPanel(new BorderLayout(Ui.GAP, 0)) {
+            @Override public void updateUI() { super.updateUI(); setBackground(Theme.palette().chrome()); }
+        };
+        bar.setBorder(BorderFactory.createCompoundBorder(Ui.topLine(), Ui.padding(4, 10, 4, 12)));
+        var left = new JPanel(new BorderLayout(8, 0));
+        left.setOpaque(false);
+        left.add(statusDot, BorderLayout.WEST);
+        left.add(message, BorderLayout.CENTER);
+        bar.add(left, BorderLayout.CENTER);
+        var right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 14, 0));
         right.setOpaque(false);
         busy.setIndeterminate(true);
-        busy.setPreferredSize(new Dimension(120, 6));
+        busy.setPreferredSize(new Dimension(110, 4));
         busy.setVisible(false);
         right.add(busy);
+        right.add(memory);
         right.add(caret);
         bar.add(right, BorderLayout.EAST);
         return bar;
+    }
+
+    private void refreshMemory() {
+        var runtime = Runtime.getRuntime();
+        long used = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
+        long max = runtime.maxMemory() / (1024 * 1024);
+        memory.setText(Text.t("status.memory", used, max));
+        memory.setToolTipText(Text.t("status.memory.tip", used, max));
+    }
+
+    /** The status dot: idle, busy (accent) or, after a decompile, the overall result. */
+    static final class StatusDot extends JComponent {
+        private Color color;
+        StatusDot() { setPreferredSize(new Dimension(8, 8)); }
+        void set(Color value) { color = value; repaint(); }
+        @Override protected void paintComponent(Graphics g) {
+            var g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color == null ? Theme.muted() : color);
+            g2.fillOval(0, getHeight() / 2 - 4, 8, 8);
+            g2.dispose();
+        }
+    }
+
+    /** Phase G8: the tab icon of a class: its kind, with its confidence dot once decompiled. */
+    private Icon tabIcon(Workspace.ClassItem item) {
+        char kind = ExplorerPanel.kind(item);
+        var level = workspace == null ? null : workspace.evidence(item.name()).map(ResultIndex.ClassEntry::level).orElse(null);
+        return Icons.kind(kind, ExplorerPanel.kindColor(kind), level == null ? null : Theme.level(level));
+    }
+
+    /** Phase G8: right click on a tab: close it, the others, or all. */
+    private void tabMenu(MouseEvent event) {
+        if (!event.isPopupTrigger()) return;
+        int index = tabs.indexAtLocation(event.getX(), event.getY());
+        if (index < 0) return;
+        tabs.setSelectedIndex(index);
+        var menu = new JPopupMenu();
+        menu.add(closeTab);
+        menu.add(closeOthers);
+        menu.add(closeAll);
+        if (tabs.getComponentAt(index) instanceof CodeTab tab && tab.classItem() != null) { menu.addSeparator(); menu.add(copyName); }
+        menu.show(tabs, event.getX(), event.getY());
+    }
+
+    /** Closes every tab except the one at {@code keep} (all of them when -1). */
+    private void closeTabs(int keep) {
+        var kept = keep >= 0 && keep < tabs.getTabCount() ? tabs.getComponentAt(keep) : null;
+        for (int i = tabs.getTabCount() - 1; i >= 0; i--) if (tabs.getComponentAt(i) != kept) tabs.removeTabAt(i);
+    }
+
+    /** Phase G8: what the editor area shows with no tab open: how to open a class, with the shortcuts as key caps. */
+    private JComponent emptyEditor() {
+        var panel = new JPanel(new GridBagLayout()) {
+            @Override public void updateUI() { super.updateUI(); setBackground(Theme.editor()); }
+        };
+        var column = new JPanel();
+        column.setOpaque(false);
+        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        var icon = new JLabel(Icons.of(Icons.Glyph.CODE, 40, Theme.lineStrong()));
+        icon.setAlignmentX(CENTER_ALIGNMENT);
+        column.add(icon);
+        column.add(Box.createVerticalStrut(14));
+        var title = Ui.styled(Text.t("tabs.empty.title"), "h3");
+        title.setAlignmentX(CENTER_ALIGNMENT);
+        column.add(title);
+        column.add(Box.createVerticalStrut(4));
+        var hint = Ui.muted(Text.t("tabs.empty"));
+        hint.setAlignmentX(CENTER_ALIGNMENT);
+        column.add(hint);
+        column.add(Box.createVerticalStrut(18));
+        var keys = new JPanel(new GridBagLayout());
+        keys.setOpaque(false);
+        String[][] rows = {{"ctrl N", "action.goToClass"}, {"ctrl shift F", "action.search"}, {"F5", "action.decompile"}, {"F1", "action.shortcuts"}};
+        var at = new GridBagConstraints();
+        at.insets = new Insets(3, 6, 3, 6);
+        for (int i = 0; i < rows.length; i++) {
+            at.gridy = i; at.gridx = 0; at.anchor = GridBagConstraints.EAST;
+            keys.add(Ui.muted(Text.t(rows[i][1]).replace("…", "")), at);
+            at.gridx = 1; at.anchor = GridBagConstraints.WEST;
+            keys.add(Ui.keycaps(Ui.shortcut(rows[i][0])), at);
+        }
+        keys.setAlignmentX(CENTER_ALIGNMENT);
+        column.add(keys);
+        panel.add(column);
+        return panel;
     }
 
     private void refreshRecent() {
@@ -981,6 +1180,7 @@ final class MainWindow extends JFrame {
             action.setEnabled(workspace != null && (idle || action == goToClass || action == findUsages || action == callHierarchy));
         for (var action : resultActions) action.setEnabled(result() != null);
         cancel.setEnabled(!idle);
+        if (cancelButton != null) cancelButton.setVisible(!idle);
         open.setEnabled(idle);
         openResult.setEnabled(idle);
         closeWorkspace.setEnabled(workspace != null && idle);
@@ -989,6 +1189,7 @@ final class MainWindow extends JFrame {
 
     private void busy(boolean on, String text) {
         busy.setVisible(on);
+        statusDot.set(on ? Theme.ACCENT : resultColor());
         status(text);
         setCursor(on && opening ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR) : Cursor.getDefaultCursor());
     }
@@ -996,6 +1197,13 @@ final class MainWindow extends JFrame {
     void status(String text) { message.setText(text); }
 
     private ResultIndex result() { return workspace == null ? null : workspace.result(); }
+
+    /** The status dot's color for the current result: green when it compiles, red when it does not, gray before. */
+    private Color resultColor() {
+        var index = result();
+        if (index == null) return null;
+        return index.summary().compilation().equals("COMPILED") ? Theme.level(ResultIndex.Level.EXACT) : Theme.level(ResultIndex.Level.UNVERIFIED);
+    }
 
     private void saveSettings() {
         try { settings.save(); } catch (IOException failure) { status(Text.t("status.settingsNotSaved", failure.getMessage())); }
@@ -1035,10 +1243,19 @@ final class MainWindow extends JFrame {
         }
     }
 
+    /** The memory clock would keep a closed window reachable (tests open several); it stops with the window. */
+    @Override public void dispose() {
+        memoryClock.stop();
+        super.dispose();
+    }
+
     // For tests: the current state, read on the event thread.
     Workspace workspace() { return workspace; }
     JTabbedPane tabs() { return tabs; }
     ObfuscationBanner banner() { return banner; }
     UsagesPanel usages() { return usages; }
+    SearchPanel searchPanel() { return search; }
+    void showActivityPanel() { showBottom(activity); }
+    ExplorerPanel explorer() { return explorer; }
     boolean running() { return running != null; }
 }

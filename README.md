@@ -53,7 +53,7 @@ New to decompiling? Read [Getting started](docs/getting-started.md), or the [gui
 
 | Area | What you get | Docs |
 |---|---|---|
-| Desktop application | Package and class explorer, bytecode before any decompile, live progress with cancel, per-class confidence and per-method round-trip marks, javac errors underlined, side-by-side engine comparison, find usages and call hierarchy, go to class, code search, export as an IDE project, dark and light themes, English and Portuguese | [Getting started](docs/getting-started.md#4-the-desktop-application) |
+| Desktop application | Package and class explorer with a confidence filter, bytecode before any decompile, live progress with cancel, a plain-language verdict, per-class confidence and per-method round-trip marks, javac errors underlined, side-by-side engine comparison, find usages and call hierarchy, go to class, code search, export as an IDE project, dark and light themes, English and Portuguese | [Getting started](docs/getting-started.md#4-the-desktop-application) |
 | Verified selection | Recompilation, structural signatures, per-method round trip, bounded hybrids, compiler-guided source repairs, per-method composition across engines | [Architecture](ARCHITECTURE.md#selection-and-composition) |
 | Inputs | `.class`, `.jar`, multi-release jars, executables with an embedded jar, bundles of jars, Android APK and dex | [CLI reference](docs/cli-reference.md#executables-bundles-and-android-inputs) |
 | Missing libraries | Pass your own jars with `--classpath`; otherwise inferred stand-ins let the result compile, and it is marked stub-backed | [CLI reference](docs/cli-reference.md#selection-evidence-and-limits) |

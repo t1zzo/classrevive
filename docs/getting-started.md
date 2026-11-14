@@ -63,15 +63,17 @@ With a JDK 21 and a checkout of the repository, run `./gradlew :cli:installDist`
 
 Start `bin/classrevive-gui` (on Windows, double-click `bin\classrevive-gui.bat`).
 
-1. **Open a file.** Use **Open file…** or drop a `.jar`, `.class`, `.apk` or `.exe` on the window. The explorer on the left lists packages, classes and resources right away; you can read any class's bytecode before decompiling.
-2. **Decompile.** Press **F5** (or the orange **Decompile** button). The activity panel at the bottom shows each step live, and the stop button cancels. **Decompile with options…** lets you pick the engines, the time limit and the libraries the program needs; the defaults are fine to start with.
-3. **Read the result.** Click a class. Its selected source opens with highlighting, line numbers and folding. The **View** box at the top switches to any single engine's version or to the bytecode.
+1. **Open a file.** Use **Open a Java program** on the start screen (or **Open file…**), or drop a `.jar`, `.class`, `.apk` or `.exe` anywhere on the window. The explorer on the left lists packages, classes and resources right away; you can read any class's bytecode before decompiling.
+2. **Decompile.** Press **F5** (or the orange **Decompile** button). The activity panel at the bottom shows each step live, and the red **Cancel** button that appears in the toolbar stops it. The arrow next to **Decompile** (or Shift+F5) opens **Decompile with options…**, where you pick *Fast*, *Complete* or your own engines, the time limit and the libraries the program needs; the defaults are fine to start with.
+3. **Read the result.** Click a class. Its selected source opens with highlighting, line numbers and folding. The buttons above the editor (**Selected**, **CFR**, **Vineflower**, **Procyon**, **JADX**, **Bytecode**) switch to any single engine's version or to the bytecode.
 
 ![The overview tab after decompiling Gson: whether the result compiles, how many signatures matched, how many classes are exact, and the language and compiler the bytecode points to](images/desktop-overview-dark.png)
 
 What the screen tells you:
 
-- **Confidence level.** Every class carries one: *exact*, *close*, *per file*, *partial* or *unverified* (see [section 6](#6-understanding-the-result)). It appears in the tree, above the editor and in the inspector on the right.
+- **Verdict.** The overview opens with one sentence saying what the result means: everything matches the original, it recompiles with some classes close, some classes need a closer look, or it does not recompile yet. When classes need attention, a link shows them in the explorer.
+
+- **Confidence level.** Every class carries one: *exact*, *close*, *per file*, *partial* or *unverified* (see [section 6](#6-understanding-the-result)). It appears in the tree, above the editor and in the inspector on the right. The filter button next to the explorer's search box (or a click on a level in the overview's legend) shows only the classes at one level, or the ones that need attention.
 - **Round-trip dots.** In the selected source, each method has a dot in the margin: green when its recompiled body is identical or equivalent to the original, other colors when it differs. javac errors are underlined.
 - **Obfuscation banner.** When the bytecode points to a known obfuscator, a banner names it with its evidence. For Skidfuscator and Aidsfuscator, ClassRevive can reverse the jar before decompiling.
 
@@ -79,6 +81,7 @@ Useful keys:
 
 | Key | Action |
 |---|---|
+| F1 | All keyboard shortcuts |
 | F5 | Decompile |
 | Ctrl+N | Go to a class by name |
 | Ctrl+F / Ctrl+Shift+F | Find in the current file / search all code |

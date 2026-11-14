@@ -38,7 +38,13 @@ class ScreenshotTour {
         settings.remember(jar);
         for (var theme : new GuiSettings.ThemeChoice[] {GuiSettings.ThemeChoice.LIGHT, GuiSettings.ThemeChoice.DARK}) {
             String suffix = theme.name().toLowerCase();
-            var window = onEdt(() -> { Theme.install(theme); var w = new MainWindow(settings); w.setSize(1440, 900); w.setVisible(true); return w; });
+            // Phase G8: the first run, with no recent files, shows how ClassRevive works instead of the recent list.
+            var fresh = GuiSettings.load(directory.resolve("fresh-" + suffix + ".properties"));
+            var first = onEdt(() -> { Theme.install(theme); var w = new MainWindow(fresh); w.setSize(1440, 900); w.setVisible(true); return w; });
+            settle();
+            shot(first, out.resolve("00-first-run-" + suffix + ".png"));
+            SwingUtilities.invokeAndWait(first::dispose);
+            var window = onEdt(() -> { var w = new MainWindow(settings); w.setSize(1440, 900); w.setVisible(true); return w; });
             try {
                 settle();
                 shot(window, out.resolve("01-welcome-" + suffix + ".png"));
@@ -56,6 +62,12 @@ class ScreenshotTour {
                 SwingUtilities.invokeAndWait(() -> window.openClass(window.workspace().classItem("demo/shapes/Circle").orElseThrow()));
                 settle();
                 shot(window, out.resolve("05-class-" + suffix + ".png"));
+                // Phase G8: a search with its matches highlighted, and the explorer filtered to one level.
+                SwingUtilities.invokeAndWait(() -> { window.searchCode.actionPerformed(null); window.searchPanel().searchFor("radius"); });
+                settle();
+                SwingUtilities.invokeAndWait(() -> window.explorer().showLevel(dev.classrevive.workbench.ResultIndex.Level.EXACT));
+                settle();
+                shot(window, out.resolve("05b-search-filter-" + suffix + ".png"));
                 // A result folder opens in a window of its own, so its activity panel does not show the demo's decompile.
                 if (result != null) resultTour(settings, Path.of(result), out, suffix);
                 // Optional: a result that does not compile, opened at its first javac error.

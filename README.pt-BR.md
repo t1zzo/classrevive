@@ -4,7 +4,7 @@
 
 [English](README.md) | Português (Brasil)
 
-![O aplicativo desktop do ClassRevive mostrando uma classe descompilada do Gson: a árvore de pacotes à esquerda, o código escolhido com uma bolinha verde de ida e volta ao lado de cada método no meio, e o nível de confiança e as evidências da classe à direita](docs/images/desktop-class-dark-pt-BR.png)
+![O aplicativo desktop do ClassRevive mostrando uma classe descompilada do Gson: a árvore de pacotes à esquerda, o código escolhido com uma bolinha verde de recompilação ao lado de cada método no meio, e o nível de confiança e as evidências da classe à direita](docs/images/desktop-class-dark-pt-BR.png)
 
 O ClassRevive roda quatro descompiladores Java conhecidos (CFR, Vineflower, Procyon e JADX) sobre um `.class`, um `.jar`, um APK do Android ou um executável com um jar dentro. Ele recompila cada resultado com o javac, compara com o bytecode original e fica, arquivo por arquivo e método por método, com a versão que as evidências sustentam. Cada classe termina com um nível de confiança que você pode conferir, no aplicativo desktop ou na linha de comando.
 

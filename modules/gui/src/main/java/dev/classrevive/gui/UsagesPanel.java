@@ -41,8 +41,9 @@ final class UsagesPanel extends JPanel {
         super(new BorderLayout());
         this.open = open;
         var top = new JPanel(new FlowLayout(FlowLayout.LEFT, Ui.GAP, 6));
-        top.setBorder(Ui.padding(2, 6, 0, 6));
-        title.setFont(title.getFont().deriveFont(Font.BOLD));
+        top.setBorder(Ui.padding(4, 8, 2, 8));
+        // Phase G8: the same header as the search panel: a semibold title, muted details.
+        title.putClientProperty(FlatClientProperties.STYLE, "font: $semibold.font");
         cancel.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
         cancel.addActionListener(e -> cancelIndex.run());
         cancel.setVisible(false);
@@ -51,6 +52,7 @@ final class UsagesPanel extends JPanel {
         add(top, BorderLayout.NORTH);
         tree.setRootVisible(false);
         tree.setShowsRootHandles(true);
+        tree.setRowHeight(24);
         tree.setCellRenderer(new Renderer());
         tree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         tree.addMouseListener(new MouseAdapter() {
@@ -201,8 +203,9 @@ final class UsagesPanel extends JPanel {
             setFont(tree.getFont());
             switch (((DefaultMutableTreeNode) value).getUserObject()) {
                 case ClassGroup group -> {
-                    setText("<html><b>" + Ui.escape(simple(group.treeName())) + "</b> <span style='color:gray'>" + Ui.escape(packageOf(group.treeName()))
-                        + " · " + group.count() + "</span></html>");
+                    String muted = String.format("#%06X", (selected ? getForeground() : Theme.muted()).getRGB() & 0xFFFFFF);
+                    setText("<html><b>" + Ui.escape(simple(group.treeName())) + "</b> &nbsp;<font color='" + muted + "'>" + Ui.escape(packageOf(group.treeName()))
+                        + " · " + group.count() + "</font></html>");
                     setIcon(Icons.kind('C', ExplorerPanel.kindColor('C'), null));
                 }
                 case MemberGroup group -> { setText(member(group.from(), treeNames) + "  (" + group.count() + ")"); setIcon(Icons.of(Icons.Glyph.GOTO, 14)); }
