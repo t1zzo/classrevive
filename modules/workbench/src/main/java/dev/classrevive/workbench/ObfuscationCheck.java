@@ -49,10 +49,11 @@ public final class ObfuscationCheck {
             byte[] bytes = Files.readAllBytes(file);
             if (bytes.length <= MAX_CLASS_BYTES) builder.addClass(bytes);
         } else try (var zip = new ZipFile(file.toFile())) {
+            builder.addArchiveComment(zip.getComment());
             var entries = zip.entries();
             for (int visited = 0; entries.hasMoreElements() && visited < MAX_ENTRIES; visited++) {
                 var entry = entries.nextElement();
-                if (entry.isDirectory()) continue;
+                if (entry.isDirectory()) { builder.addDirectory(entry.getName()); continue; }
                 if (!entry.getName().toLowerCase(Locale.ROOT).endsWith(".class")) { builder.addResource(entry.getName(), entry.getSize()); continue; }
                 if (entry.getSize() > MAX_CLASS_BYTES) continue;
                 try (var in = zip.getInputStream(entry)) {

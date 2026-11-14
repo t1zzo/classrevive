@@ -20,9 +20,11 @@ public final class DynamicWorker {
             for(var finding:result.findings()) rows.add(new Row("input.class",finding));
             classes=1; limited=result.limitReached(); profile.addClass(bytes);
         } else try(var zip=new ZipFile(input.toFile())) {
+            profile.addArchiveComment(zip.getComment());
             var entries=zip.entries(); int visited=0;
             while(entries.hasMoreElements()) {
                 var entry=entries.nextElement(); if(++visited>20000) throw new IOException("Entry limit");
+                if(entry.isDirectory()) profile.addDirectory(entry.getName());
                 if(!entry.getName().toLowerCase(Locale.ROOT).endsWith(".class")) { if(!entry.isDirectory()) profile.addResource(entry.getName(),entry.getSize()); continue; }
                 byte[] bytes=read(zip.getInputStream(entry)); expanded+=bytes.length;
                 if(expanded>512L*1024*1024) throw new IOException("Expanded byte limit");

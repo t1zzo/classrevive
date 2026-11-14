@@ -311,6 +311,7 @@ public final class ObfuscationProfile {
             bytecodeVm(node);
             alpheratz(node);
             branchlock(node);
+            ambien(node);
             blackObfuscator(node);
         }
 
@@ -353,6 +354,60 @@ public final class ObfuscationProfile {
         private static AbstractInsnNode previousReal(AbstractInsnNode[] insns, int at) {
             for (int k = at - 1; k >= 0; k--) if (insns[k].getOpcode() >= 0) return insns[k];
             return null;
+        }
+
+        /** The archive's own comment (the zip end record), read as data: some obfuscators sign their output there. */
+        public void addArchiveComment(String comment) {
+            if (comment == null || comment.isEmpty()) return;
+            if (comment.contains("Ambien")) metric("ambien.archive_comment", 1);
+        }
+
+        /** A directory entry: one named {@code X.class/} is a class hidden as a folder from tools that list folders. */
+        public void addDirectory(String name) {
+            if (name.toLowerCase(Locale.ROOT).endsWith(".class/")) metric("packaging.folder_classes", 1);
+        }
+
+        /**
+         * Ambien (iiiiiiiris/Ambien, MIT): its string decryptor ({@code (String, int, int)String} seeding a
+         * {@code java.util.Random} and decoding Base64), its reference hider (a static
+         * {@code (String, String, String)MutableCallSite} built with {@code Class.forName} and {@code findStatic}), its red
+         * herring class {@code Ambien} that extends itself, and its crashers: a class extending itself, a class named
+         * {@code <html><img src="https:...}, annotations whose type is a hundred line feeds, random signatures.
+         */
+        private void ambien(ClassNode node) {
+            if (node.name.equals(node.superName)) metric(node.name.equals("Ambien") ? "ambien.red_herring" : "ambien.self_inheritance", 1);
+            if (node.name.startsWith("<html><img src=\"https:")) metric("ambien.html_class", 1);
+            if (lineFeedAnnotation(node.invisibleAnnotations)) metric("ambien.line_feed_annotations", 1);
+            for (var method : node.methods) {
+                if (lineFeedAnnotation(method.invisibleAnnotations)) metric("ambien.line_feed_annotations", 1);
+                if ((method.access & ACC_STATIC) == 0) continue;
+                if (method.desc.equals("(Ljava/lang/String;II)Ljava/lang/String;")) {
+                    boolean random = false, base64 = false;
+                    for (var insn : method.instructions)
+                        if (insn instanceof MethodInsnNode call) {
+                            if (call.owner.equals("java/util/Random") && call.name.equals("<init>") && call.desc.equals("(J)V")) random = true;
+                            if (call.owner.equals("java/util/Base64$Decoder") && call.name.equals("decode")) base64 = true;
+                        }
+                    if (random && base64) metric("ambien.string_decryptors", 1);
+                }
+                if (method.desc.equals("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/invoke/MutableCallSite;")) {
+                    boolean forName = false, findStatic = false;
+                    for (var insn : method.instructions)
+                        if (insn instanceof MethodInsnNode call) {
+                            if (call.owner.equals("java/lang/Class") && call.name.equals("forName")) forName = true;
+                            if (call.owner.equals("java/lang/invoke/MethodHandles$Lookup") && call.name.equals("findStatic")) findStatic = true;
+                        }
+                    if (forName && findStatic) metric("ambien.reference_hiders", 1);
+                }
+            }
+            for (var field : node.fields) if (lineFeedAnnotation(field.invisibleAnnotations)) metric("ambien.line_feed_annotations", 1);
+        }
+
+        private static boolean lineFeedAnnotation(List<AnnotationNode> annotations) {
+            if (annotations == null) return false;
+            for (var annotation : annotations)
+                if (annotation.desc.length() >= 50 && annotation.desc.chars().allMatch(c -> c == '\n')) return true;
+            return false;
         }
 
         /**
