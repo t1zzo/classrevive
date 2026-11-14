@@ -16,6 +16,10 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 - Exception obfuscation: `catch (RuntimeException e) { throw a(e); }` through a helper returning its argument loses the helper, then the handler that only rethrows (also in javac's `astore; aload; athrow` shape).
 - `decompile`'s own reversal accepts archives whose class names differ only in letter case; they are made portable right after it, as before.
 
+### Engines and selection
+
+- Inferred stand-ins for missing libraries never give a type a supertype that reaches one of its own member types. Converted Android code could lead there (`Drawable` placed below `AdaptiveIconDrawable`, which implements `Drawable.Callback`), and javac's "cyclic inheritance" then stopped every file naming the type, so the per-file round trip of a large APK compiled nothing.
+
 ## [0.3.0] - 2026-11-11
 
 ### Deobfuscation

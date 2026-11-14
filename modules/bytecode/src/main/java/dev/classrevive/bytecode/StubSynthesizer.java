@@ -278,6 +278,15 @@ public final class StubSynthesizer {
             crowded.setValue(new TreeSet<>(List.of(best)));
         }
         for (var entry : edges.entrySet()) { stubs.get(entry.getKey()).parent = entry.getValue().iterator().next(); links++; }
+        // javac refuses a class whose supertypes reach one of its own member types ("cyclic inheritance involving X"), and the
+        // error stops every file that names the class. Converted dex code can show such an order when its verifier dropped a
+        // cast after instanceof; the link that leads there is the guess, so it goes.
+        for (var stub : stubs.values()) {
+            if (stub.parent != null && reachesMemberOf(stub.parent, stub.name, stubs)) { stub.parent = null; links--; }
+            int before = stub.interfaces.size();
+            stub.interfaces.removeIf(type -> reachesMemberOf(type, stub.name, stubs));
+            links -= before - stub.interfaces.size();
+        }
         // JDK superclasses go to the top of each chain; a throwable's ancestors are throwables.
         for (var stub : stubs.values()) {
             if (stub.throwable) for (var up = stub; up.parent != null; ) { up = stubs.get(up.parent); up.throwable = true; }
@@ -306,6 +315,22 @@ public final class StubSynthesizer {
             node = nodes.get(node.superName);
         }
         return null;
+    }
+
+    /** Whether {@code from}, or a stub supertype of it, is {@code outer} or a type nested in {@code outer}. */
+    private static boolean reachesMemberOf(String from, String outer, Map<String,Stub> stubs) {
+        var seen = new HashSet<String>();
+        var work = new ArrayDeque<String>(List.of(from));
+        while (!work.isEmpty()) {
+            String current = work.pop();
+            if (current.equals(outer) || current.startsWith(outer + "$")) return true;
+            if (!seen.add(current)) continue;
+            var stub = stubs.get(current);
+            if (stub == null) continue;
+            work.addAll(stub.interfaces);
+            if (stub.parent != null) work.add(stub.parent);
+        }
+        return false;
     }
 
     /** Whether {@code from} reaches {@code to} through the stub parents, superclass candidates and interfaces known so far. */
