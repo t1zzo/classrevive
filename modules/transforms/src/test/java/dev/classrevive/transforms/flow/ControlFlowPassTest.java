@@ -409,6 +409,63 @@ class ControlFlowPassTest {
         assertArrayEquals(input, output(result, "T"), "small literal states are what javac writes for a state machine: no evidence");
     }
 
+    /**
+     * A dispatcher keyed by a string, as BlackObfuscator writes it and dex2jar turns it into locals:
+     * {@code s = "qX.."; loop: h = s.hashCode(); i = K ^ h; switch (i) { case: x += 1; s = "Tz.."; goto loop; case: return x; }}.
+     * With {@code readHashOutside}, the method also returns {@code h} afterwards, so the dispatcher's local is no scratch.
+     */
+    private static byte[] stringKeyed(boolean readHashOutside) {
+        String first = "qXr7bLmZ", second = "Tz0pW4aN";
+        int k = 0x5a5a5a5a;
+        return type(V1_8, w -> {
+            var m = method(w, "f", "(I)I");
+            var loop = new Label(); var c0 = new Label(); var c1 = new Label(); var dflt = new Label();
+            m.visitLdcInsn(first); m.visitVarInsn(ASTORE, 1);
+            m.visitLdcInsn(k); m.visitVarInsn(ISTORE, 2);
+            m.visitLabel(loop);
+            m.visitVarInsn(ALOAD, 1); m.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "hashCode", "()I", false); m.visitVarInsn(ISTORE, 3);
+            m.visitVarInsn(ILOAD, 2); m.visitVarInsn(ILOAD, 3); m.visitInsn(IXOR); m.visitVarInsn(ISTORE, 4);
+            m.visitVarInsn(ILOAD, 4);
+            int k0 = first.hashCode() ^ k, k1 = second.hashCode() ^ k;
+            m.visitLookupSwitchInsn(dflt, k0 < k1 ? new int[] {k0, k1} : new int[] {k1, k0}, k0 < k1 ? new Label[] {c0, c1} : new Label[] {c1, c0});
+            m.visitLabel(c0); m.visitIincInsn(0, 1); m.visitLdcInsn(second); m.visitVarInsn(ASTORE, 1); m.visitJumpInsn(GOTO, loop);
+            m.visitLabel(c1);
+            if (readHashOutside) { m.visitVarInsn(ILOAD, 3); m.visitInsn(IRETURN); }
+            else { m.visitVarInsn(ILOAD, 0); m.visitInsn(IRETURN); }
+            m.visitLabel(dflt); m.visitInsn(ICONST_M1); m.visitInsn(IRETURN);
+            end(m);
+        });
+    }
+
+    @Test void unflattensADispatcherKeyedByAStringHash() {
+        var result = run(stringKeyed(false));
+        var f = find(output(result, "T"), "f");
+        assertEquals(0, conditionals(f), "both edges go straight to their case: no switch, no hashCode loop");
+        assertEquals(0, count(f, INVOKEVIRTUAL));
+        assertTrue(result.report().count("dispatcher edges threaded") >= 2, result.report().toString());
+        verifies(output(result, "T"));
+    }
+
+    @Test void keepsAStringDispatcherWhoseLocalsAreReadOutsideIt() {
+        var result = run(stringKeyed(true));
+        var f = find(output(result, "T"), "f");
+        assertEquals(1, count(f, LOOKUPSWITCH), "the hash is read after the switch: skipping the dispatcher would change it");
+    }
+
+    @Test void leavesAJavacStringSwitchAlone() {
+        // switch (s) { case "a": return 1; default: return 0; } as javac writes its first switch: hashCode straight in.
+        byte[] input = type(V1_8, w -> {
+            var m = method(w, "f", "(Ljava/lang/String;)I");
+            var a = new Label(); var dflt = new Label();
+            m.visitVarInsn(ALOAD, 0); m.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "hashCode", "()I", false);
+            m.visitLookupSwitchInsn(dflt, new int[] {"a".hashCode()}, new Label[] {a});
+            m.visitLabel(a); m.visitInsn(ICONST_1); m.visitInsn(IRETURN);
+            m.visitLabel(dflt); m.visitInsn(ICONST_0); m.visitInsn(IRETURN);
+            end(m);
+        });
+        assertArrayEquals(input, output(run(input), "T"));
+    }
+
     // ------------------------------------------------------------------------------------------------- refusals and clean code
 
     @Test void refusesSubroutinesAndLeavesTheMethodAsItWas() {

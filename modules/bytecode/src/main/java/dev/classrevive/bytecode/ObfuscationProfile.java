@@ -312,6 +312,48 @@ public final class ObfuscationProfile {
             alpheratz(node);
             branchlock(node);
             ambien(node);
+            blackObfuscator(node);
+        }
+
+        /**
+         * BlackObfuscator (CodingGay/BlackObfuscator, Apache-2.0, a dex2jar fork for Android): control-flow flattening
+         * keyed by a string. A local holds a state string; the dispatcher computes {@code s.hashCode() ^ k} and switches
+         * on it; the cases assign the next state ({@code ldc "..."; astore s}) and jump back to the dispatcher. javac's
+         * and Kotlin's string switches hash too, but never XOR the hash or loop back to it.
+         */
+        private void blackObfuscator(ClassNode node) {
+            for (var method : node.methods) {
+                var insns = method.instructions.toArray();
+                int dispatchers = 0;
+                for (int i = 0; i < insns.length; i++) {
+                    if (!(insns[i] instanceof LookupSwitchInsnNode || insns[i] instanceof TableSwitchInsnNode)) continue;
+                    // hashCode() and an ixor within the few instructions before the switch.
+                    int hash = -1; boolean xor = false;
+                    for (int k = i - 1; k >= 0 && k >= i - 8; k--) {
+                        if (insns[k].getOpcode() == IXOR) xor = true;
+                        if (insns[k] instanceof MethodInsnNode call && call.owner.equals("java/lang/String") && call.name.equals("hashCode")) { hash = k; break; }
+                    }
+                    if (hash < 0 || !xor || !(previousReal(insns, hash) instanceof VarInsnNode state) || state.getOpcode() != ALOAD) continue;
+                    // The loop: a label at or before the hash load that string assignments to the state jump back to.
+                    int backEdges = 0;
+                    for (int k = 0; k < insns.length; k++) {
+                        if (!(insns[k] instanceof JumpInsnNode jump) || jump.getOpcode() != GOTO) continue;
+                        int target = method.instructions.indexOf(jump.label);
+                        if (target > hash || target < hash - 12) continue;
+                        var store = previousReal(insns, k);
+                        var ldc = store == null ? null : previousReal(insns, method.instructions.indexOf(store));
+                        if (store instanceof VarInsnNode put && put.getOpcode() == ASTORE && put.var == state.var && ldc instanceof LdcInsnNode text && text.cst instanceof String)
+                            backEdges++;
+                    }
+                    if (backEdges >= 2) dispatchers++;
+                }
+                if (dispatchers > 0) { metric("black.flattened_methods", 1); metric("black.dispatchers", dispatchers); }
+            }
+        }
+
+        private static AbstractInsnNode previousReal(AbstractInsnNode[] insns, int at) {
+            for (int k = at - 1; k >= 0; k--) if (insns[k].getOpcode() >= 0) return insns[k];
+            return null;
         }
 
         /** The archive's own comment (the zip end record), read as data: some obfuscators sign their output there. */
