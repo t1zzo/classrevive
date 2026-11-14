@@ -4,6 +4,19 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Desktop
+
+- A redesigned desktop with the same layout and identity. Both themes are built on one set of colors (the light theme gets its own warm palette and syntax colors), headings use semibold type, and selections, menus and popups are rounded.
+- Start screen: cards for opening a program or a saved result, a drop zone that lights up while a file is dragged over the window, recent files tagged *result* or *not found* with *Clear list*, and a three-step "How it works" on the first run.
+- Explorer: a confidence filter (one level, or the classes that need attention), class counts per package, resources shown by name with their folder, and a message with *Clear filters* when nothing matches.
+- Editor: the views are buttons (*Selected*, *CFR*, *Vineflower*, *Procyon*, *JADX*, *Bytecode*); before a decompile a strip explains that the text is bytecode and offers *Decompile*.
+- Overview: a verdict in plain words (never a "recovery %", never a behavior claim) with a link to the classes that need attention, tiles that wrap instead of cutting, a confidence legend whose rows filter the explorer, and the engines as a table.
+- Toolbar: *Decompile* carries its options in an attached arrow, *Cancel* shows only while a decompile runs, and a button switches between light and dark. The status bar shows the result's state and the memory in use. Tabs close with a middle click and offer *Close other tabs* and *Close all tabs*.
+- Activity as a timeline, search hits with the match highlighted, a color legend in the engine comparison, redesigned decompile options, settings, shortcuts (F1, drawn as keys) and about dialogs, and error dialogs whose technical details fold behind *Show details*.
+- Fixed: opening another input kept the previous decompile's stage times; "open at line" (search hits, javac errors) could land on line 1; centering the caret of a tab not yet on screen threw an exception; the inspector listed every level at zero for results without levels; the disabled main button looked brown.
+- Faster: the code font is looked up once instead of on every repaint of code lists, method evidence and javac errors are located off the event thread, very large files (over 1.5 million characters or 30,000 lines) open without code folding, and the Windows theme lookup no longer delays the window.
+- macOS: shortcuts use the Command key and the menu bar is the system one.
+
 ### Detection
 
 - New rules for native-obfuscator (radioegor146) and its forks such as native-obfuscator-plus, j2cc, BytecodeVM and the alpheratz obfuscator, from shapes that survive their configurable names: native-obfuscator's `registerNativesForClass(int, Class)` loader and registering initializers; j2cc's `bootstrap`/`initClass`/`doInit` loader, `j2cc/natives.bin` resources and `j2$mh` method-handle calls; BytecodeVM's `execute(code id, receiver, Object[] args)` stubs and `$CodePool`; alpheratz's table-keyed numbers and booleans, goto traps, trash predicates and trash `throws`. The generic native-layer hypothesis is no longer reported beside a recognized transpiler. See `docs/obfuscation-detection.md`.

@@ -18,8 +18,9 @@ final class ObfuscationBanner extends JPanel {
     ObfuscationBanner(MainWindow window) {
         super(new BorderLayout(Ui.GAP, 0));
         this.window = window;
-        setBorder(BorderFactory.createCompoundBorder(Ui.bottomLine(), Ui.padding(5, 12, 5, 10)));
+        setBorder(BorderFactory.createCompoundBorder(Ui.bottomLine(), Ui.padding(6, 16, 6, 10)));
         text.setIcon(Icons.of(Icons.Glyph.SHIELD, 16, Theme.ACCENT));
+        text.setIconTextGap(10);
         add(text, BorderLayout.CENTER);
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         buttons.setOpaque(false);
@@ -54,7 +55,7 @@ final class ObfuscationBanner extends JPanel {
     boolean offersReversal() { return isVisible() && reverse.isVisible(); }
 
     @Override protected void paintComponent(Graphics g) {
-        g.setColor(Theme.dark() ? new Color(0x1E1408) : new Color(0xFFF1E3));
+        g.setColor(Theme.accentSoft());
         g.fillRect(0, 0, getWidth(), getHeight());
         g.setColor(Theme.ACCENT);
         g.fillRect(0, 0, 3, getHeight());
@@ -66,6 +67,24 @@ final class ObfuscationBanner extends JPanel {
             case "NONE" -> Text.t("obfuscation.none");
             case "UNKNOWN" -> Text.t("obfuscation.unknown");
             default -> Text.t("obfuscation.likely", detection.top().obfuscator(), Text.t("confidence." + detection.top().confidence()));
+        };
+    }
+
+    /** Phase G8: the verdict in a word or two, for the overview tile: "Skidfuscator", "Unknown", "None". */
+    static String shortVerdict(ObfuscationCheck.Detection detection) {
+        return switch (detection.verdict()) {
+            case "NONE" -> Text.t("obfuscation.noneShort");
+            case "UNKNOWN" -> Text.t("obfuscation.unknownShort");
+            default -> Ui.visible(detection.top().obfuscator());
+        };
+    }
+
+    /** Phase G8: the tile's note: the confidence and score, or what was checked. */
+    static String shortNote(ObfuscationCheck.Detection detection) {
+        return switch (detection.verdict()) {
+            case "NONE" -> Text.t("obfuscation.noneNote", detection.classes());
+            case "UNKNOWN" -> Text.t("obfuscation.unknownNote", detection.techniques().size());
+            default -> Text.t("obfuscation.shortNote", Text.t("confidence." + detection.top().confidence()), detection.top().score());
         };
     }
 

@@ -70,7 +70,8 @@ final class DeobfuscationPanel extends Ui.Column {
         if (top != null && !found.verdict().equals("UNKNOWN")) {
             var line = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
             line.setOpaque(false);
-            var name = Ui.heading(Ui.visible(top.obfuscator()), 15f);
+            var name = new JLabel(Ui.visible(top.obfuscator()));
+            name.putClientProperty(com.formdev.flatlaf.FlatClientProperties.STYLE, "font: +3 $semibold.font");
             line.add(name);
             line.add(Box.createHorizontalStrut(10));
             line.add(Ui.chip(Text.t("confidence." + top.confidence()) + " · " + top.score() + "/100", Theme.ACCENT));
@@ -78,7 +79,9 @@ final class DeobfuscationPanel extends Ui.Column {
             box.add(Box.createVerticalStrut(2));
             box.add(Ui.muted(Text.t("deob.identified.hypothesis")));
         } else {
-            box.add(Ui.heading(Text.t("obfuscation.unknown"), 15f));
+            var unknown = new JLabel(Text.t("obfuscation.unknown"));
+            unknown.putClientProperty(com.formdev.flatlaf.FlatClientProperties.STYLE, "font: +3 $semibold.font");
+            box.add(unknown);
         }
         box.add(Box.createVerticalStrut(8));
         var rows = Ui.rows(WIDTH);

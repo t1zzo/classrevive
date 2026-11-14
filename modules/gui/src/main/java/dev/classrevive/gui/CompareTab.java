@@ -35,26 +35,36 @@ final class CompareTab extends JPanel {
         var result = workspace.result();
         var views = new ArrayList<CodeTab.View>();
         for (String candidate : result.candidates())
-            views.add(new CodeTab.View(candidate, candidate.equals(ResultIndex.SELECTION) ? Text.t("code.view.selected") : candidate));
+            views.add(new CodeTab.View(candidate, candidate.equals(ResultIndex.SELECTION) ? Text.t("code.view.selected") : CodeTab.engineName(candidate)));
         left.setModel(new DefaultComboBoxModel<>(views.toArray(CodeTab.View[]::new)));
         right.setModel(new DefaultComboBoxModel<>(views.toArray(CodeTab.View[]::new)));
         left.setSelectedIndex(0);
         right.setSelectedIndex(Math.min(1, views.size() - 1));
 
-        var header = new JPanel(new BorderLayout(Ui.GAP, 0));
+        var header = new JPanel(new BorderLayout(Ui.GAP, 0)) {
+            @Override public void updateUI() { super.updateUI(); setBackground(Theme.panel()); }
+        };
         header.setBorder(BorderFactory.createCompoundBorder(Ui.bottomLine(), Ui.padding(6, 12, 6, 12)));
         var title = new JLabel("<html>" + Ui.escape(Text.t("compare.title")) + " &nbsp;<b>" + Ui.escape(item.simpleName()) + "</b></html>");
         title.setIcon(Icons.of(Icons.Glyph.COMPARE, 14));
+        title.setIconTextGap(8);
         header.add(title, BorderLayout.WEST);
         var pickers = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         pickers.setOpaque(false);
-        pickers.add(summary);
-        pickers.add(Box.createHorizontalStrut(12));
         pickers.add(left);
-        pickers.add(Ui.muted("↔"));
+        pickers.add(new JLabel(Icons.of(Icons.Glyph.COMPARE, 14, Theme.secondary())));
         pickers.add(right);
         header.add(pickers, BorderLayout.EAST);
-        add(header, BorderLayout.NORTH);
+        // Phase G8: the counts sit in their own row with the colors they use, so they double as the legend.
+        var legend = new JPanel(new BorderLayout()) {
+            @Override public void updateUI() { super.updateUI(); setBackground(Theme.panel()); }
+        };
+        legend.setBorder(BorderFactory.createCompoundBorder(Ui.bottomLine(), Ui.padding(4, 14, 4, 12)));
+        legend.add(summary, BorderLayout.WEST);
+        var top = new JPanel(new BorderLayout());
+        top.add(header, BorderLayout.NORTH);
+        top.add(legend, BorderLayout.SOUTH);
+        add(top, BorderLayout.NORTH);
 
         // Rows are aligned with filler lines, so source line numbers would mislead: none are shown.
         for (var scroll : List.of(leftScroll, rightScroll)) { scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.setLineNumbersEnabled(false); }
@@ -124,8 +134,16 @@ final class CompareTab extends JPanel {
         leftArea.setCaretPosition(0);
         rightArea.setCaretPosition(0);
         long differences = aligned.count(LineDiff.Kind.CHANGED) + aligned.count(LineDiff.Kind.REMOVED) + aligned.count(LineDiff.Kind.ADDED);
-        summary.setText(differences == 0 ? Text.t("compare.same") : Text.t("compare.summary", aligned.count(LineDiff.Kind.CHANGED),
-            aligned.count(LineDiff.Kind.REMOVED), aligned.count(LineDiff.Kind.ADDED)));
+        if (differences == 0) { summary.setText(Text.t("compare.same")); summary.setIcon(null); return; }
+        summary.setIcon(null);
+        summary.setText("<html>" + swatch(Theme.level(ResultIndex.Level.PER_FILE)) + Ui.escape(Text.t("compare.changed", aligned.count(LineDiff.Kind.CHANGED)))
+            + " &nbsp;&nbsp;" + swatch(Theme.level(ResultIndex.Level.UNVERIFIED)) + Ui.escape(Text.t("compare.onlyLeft", aligned.count(LineDiff.Kind.REMOVED)))
+            + " &nbsp;&nbsp;" + swatch(Theme.level(ResultIndex.Level.EXACT)) + Ui.escape(Text.t("compare.onlyRight", aligned.count(LineDiff.Kind.ADDED))) + "</html>");
+    }
+
+    /** A colored square in front of a count, the same hue as its highlighted rows. */
+    private static String swatch(Color color) {
+        return "<font color='" + String.format("#%06X", color.getRGB() & 0xFFFFFF) + "'>\u25A0</font> ";
     }
 
     private static Color tint(Color color) { return new Color(color.getRed(), color.getGreen(), color.getBlue(), Theme.dark() ? 46 : 52); }
@@ -137,11 +155,13 @@ final class CompareTab extends JPanel {
                 org.fife.ui.rsyntaxtextarea.Theme.load(in).apply(area);
             } catch (java.io.IOException | RuntimeException ignored) { }
             area.setFont(Theme.codeFont(settings.fontSize()));
-            if (Theme.dark()) { CodeTab.darkScheme(area); area.setBackground(Theme.editor()); }
+            if (Theme.dark()) CodeTab.darkScheme(area); else CodeTab.lightScheme(area);
+            CodeTab.editorColors(area);
         }
         for (var scroll : List.of(leftScroll, rightScroll)) {
             scroll.getGutter().setLineNumberFont(Theme.codeFont(Math.max(GuiSettings.MIN_FONT, settings.fontSize() - 1)));
-            if (Theme.dark()) scroll.getGutter().setBackground(Theme.editor());
+            scroll.getGutter().setBackground(Theme.editor());
+            scroll.getGutter().setBorderColor(Theme.editor());
         }
         left.putClientProperty(FlatClientProperties.MINIMUM_WIDTH, 150);
         right.putClientProperty(FlatClientProperties.MINIMUM_WIDTH, 150);

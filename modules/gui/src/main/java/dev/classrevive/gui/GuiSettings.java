@@ -120,6 +120,9 @@ public final class GuiSettings {
 
     public void forget(Path path) { recent.remove(path.toAbsolutePath().normalize()); }
 
+    /** Phase G8: empties the recent list (the files themselves are untouched). */
+    public void clearRecent() { recent.clear(); }
+
     public Path engineCacheDirectory() { return file.getParent().resolve("engine-cache"); }
     public Path cacheDirectory() { return file.getParent().resolve("cache"); }
 

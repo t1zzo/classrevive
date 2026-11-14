@@ -9,7 +9,8 @@ import javax.swing.Icon;
  * color. No image files and no icon library.
  */
 final class Icons {
-    enum Glyph { OPEN, FOLDER_RESULT, PLAY, STOP, SEARCH, GOTO, EXPORT, SETTINGS, PACKAGE, RESOURCE, FOLDER, REPORT, BACK, FORWARD, COMPARE, SHIELD }
+    enum Glyph { OPEN, FOLDER_RESULT, PLAY, STOP, SEARCH, GOTO, EXPORT, SETTINGS, PACKAGE, RESOURCE, FOLDER, REPORT, BACK, FORWARD, COMPARE, SHIELD,
+        /** Phase G8. */ SUN, MOON, CHEVRON_DOWN, CLOSE, ARROW_UP, ARROW_DOWN, FILTER, CHECK, COPY, CODE, INFO, KEYBOARD, LIBRARY, LIST }
 
     private Icons() {}
 
@@ -152,6 +153,70 @@ final class Icons {
                     shield.curveTo(5, 13.5, 2.5, 11.5, 2.5, 8); shield.lineTo(2.5, 3.5); shield.closePath();
                     g2.draw(shield);
                     g2.draw(new Line2D.Double(8, 5, 8, 9)); g2.fill(new Ellipse2D.Double(7.2, 10.4, 1.6, 1.6));
+                }
+                case SUN -> {
+                    g2.draw(new Ellipse2D.Double(5, 5, 6, 6));
+                    for (int i = 0; i < 8; i++) {
+                        double angle = Math.PI / 4 * i;
+                        g2.draw(new Line2D.Double(8 + Math.cos(angle) * 5, 8 + Math.sin(angle) * 5, 8 + Math.cos(angle) * 6.8, 8 + Math.sin(angle) * 6.8));
+                    }
+                }
+                case MOON -> {
+                    var moon = new Area(new Ellipse2D.Double(2.5, 2.5, 11, 11));
+                    moon.subtract(new Area(new Ellipse2D.Double(5.8, 0.6, 10, 10)));
+                    g2.fill(moon);
+                }
+                case CHEVRON_DOWN -> { g2.draw(new Line2D.Double(4, 6.5, 8, 10.5)); g2.draw(new Line2D.Double(8, 10.5, 12, 6.5)); }
+                case CLOSE -> { g2.draw(new Line2D.Double(4, 4, 12, 12)); g2.draw(new Line2D.Double(12, 4, 4, 12)); }
+                case ARROW_UP -> { g2.draw(new Line2D.Double(8, 13, 8, 3.5)); g2.draw(new Line2D.Double(4, 7.5, 8, 3.5)); g2.draw(new Line2D.Double(12, 7.5, 8, 3.5)); }
+                case ARROW_DOWN -> { g2.draw(new Line2D.Double(8, 3, 8, 12.5)); g2.draw(new Line2D.Double(4, 8.5, 8, 12.5)); g2.draw(new Line2D.Double(12, 8.5, 8, 12.5)); }
+                case FILTER -> {
+                    var funnel = new Path2D.Double();
+                    funnel.moveTo(2, 3); funnel.lineTo(14, 3); funnel.lineTo(9.5, 8.5); funnel.lineTo(9.5, 13); funnel.lineTo(6.5, 11.5); funnel.lineTo(6.5, 8.5); funnel.closePath();
+                    g2.draw(funnel);
+                }
+                case CHECK -> {
+                    g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    var tick = new Path2D.Double();
+                    tick.moveTo(3, 8.5); tick.lineTo(6.5, 12); tick.lineTo(13, 4.5);
+                    g2.draw(tick);
+                }
+                case COPY -> {
+                    g2.draw(new RoundRectangle2D.Double(5.5, 5.5, 8, 8.5, 2, 2));
+                    var back = new Path2D.Double();
+                    back.moveTo(3.5, 10.5); back.lineTo(2.5, 10.5); back.lineTo(2.5, 2.5); back.lineTo(9.5, 2.5); back.lineTo(9.5, 3.5);
+                    g2.draw(back);
+                }
+                case CODE -> {
+                    var left = new Path2D.Double();
+                    left.moveTo(5.5, 4); left.lineTo(1.8, 8); left.lineTo(5.5, 12);
+                    var right = new Path2D.Double();
+                    right.moveTo(10.5, 4); right.lineTo(14.2, 8); right.lineTo(10.5, 12);
+                    g2.draw(left); g2.draw(right);
+                    g2.draw(new Line2D.Double(9, 3, 7, 13));
+                }
+                case INFO -> {
+                    g2.draw(new Ellipse2D.Double(1.8, 1.8, 12.4, 12.4));
+                    g2.draw(new Line2D.Double(8, 7.2, 8, 11.2));
+                    g2.fill(new Ellipse2D.Double(7.15, 4.2, 1.7, 1.7));
+                }
+                case KEYBOARD -> {
+                    g2.draw(new RoundRectangle2D.Double(1.5, 4, 13, 8.5, 2.5, 2.5));
+                    for (int i = 0; i < 4; i++) g2.fill(new Rectangle2D.Double(3.6 + i * 2.6, 6.2, 1.3, 1.3));
+                    g2.draw(new Line2D.Double(5, 10.2, 11, 10.2));
+                }
+                case LIBRARY -> {
+                    g2.draw(new RoundRectangle2D.Double(2, 2.5, 3.5, 11, 1, 1));
+                    g2.draw(new RoundRectangle2D.Double(6.5, 2.5, 3.5, 11, 1, 1));
+                    var leaning = new Path2D.Double();
+                    leaning.moveTo(11, 3.6); leaning.lineTo(13.6, 3); leaning.lineTo(15.2, 13); leaning.lineTo(12.6, 13.6); leaning.closePath();
+                    g2.draw(leaning);
+                }
+                case LIST -> {
+                    for (int i = 0; i < 3; i++) {
+                        g2.fill(new Ellipse2D.Double(2, 3.4 + i * 4, 1.8, 1.8));
+                        g2.draw(new Line2D.Double(6, 4.3 + i * 4, 14, 4.3 + i * 4));
+                    }
                 }
                 case COMPARE -> {
                     g2.draw(new RoundRectangle2D.Double(1.5, 2.5, 5.5, 11, 2, 2));

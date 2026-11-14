@@ -31,6 +31,9 @@ class MainWindowSmokeTest {
                 assertFalse(onEdt(() -> window.decompile.isEnabled() && window.searchCode.isEnabled()), "search needs a result");
                 SwingUtilities.invokeAndWait(() -> window.openClass(window.workspace().classItem("demo/Main").orElseThrow()));
                 assertEquals(1, (int) onEdt(() -> window.tabs().getTabCount()));
+                // Phase G8: before a decompile the class shows bytecode under a strip that says so and offers to decompile.
+                var bytecodeTab = onEdt(() -> (CodeTab) window.tabs().getComponentAt(0));
+                waitFor(() -> onEdt(() -> bytecodeTab.stripShown() && !bytecodeTab.content().equals(Text.t("code.loading"))));
 
                 SwingUtilities.invokeAndWait(() -> window.decompile.actionPerformed(null));
                 assertTrue(onEdt(window::running));
@@ -42,6 +45,17 @@ class MainWindowSmokeTest {
                 // The class tab switched from bytecode to the selected source.
                 var tab = onEdt(() -> (CodeTab) window.tabs().getComponentAt(1));
                 waitFor(() -> onEdt(() -> tab.content().contains("public class Main")));
+                assertFalse(onEdt(tab::stripShown), "the bytecode strip goes away once there is source");
+                // Phase G8: the overview's verdict and the explorer's level filter read the same evidence.
+                var verdict = OverviewPanel.verdict(window.workspace().result());
+                assertEquals(ResultInsights.Severity.INFO, verdict.severity(), verdict.headline());
+                assertEquals(0, verdict.attention());
+                var exact = ExplorerPanel.build(window.workspace(), "", java.util.EnumSet.of(ResultIndex.Level.EXACT));
+                assertTrue(java.util.Collections.list(exact.depthFirstEnumeration()).stream()
+                    .anyMatch(node -> ((javax.swing.tree.DefaultMutableTreeNode) node).getUserObject() instanceof ExplorerPanel.ClassNode cls && cls.item().name().equals("demo/Main")));
+                var attention = ExplorerPanel.build(window.workspace(), "", ExplorerPanel.ATTENTION);
+                assertEquals(1, attention.getChildCount(), "only the (empty) classes group, no resources while a level is chosen");
+                assertEquals(0, ((javax.swing.tree.DefaultMutableTreeNode) attention.getChildAt(0)).getChildCount());
                 assertTrue(settings.recent().stream().anyMatch(path -> path.equals(window.workspace().result().output())));
 
                 // Phase G4: evidence icons on the measured methods of the selected source.
