@@ -45,6 +45,7 @@ public final class ObfuscatorClassifier {
         bytecodeVm(profile, hypotheses);
         alpheratz(profile, hypotheses);
         branchlock(profile, hypotheses);
+        ambien(profile, hypotheses);
         hypotheses.sort(Comparator.comparingInt(Hypothesis::score).reversed().thenComparing(Hypothesis::obfuscator));
         String verdict = !hypotheses.isEmpty() ? "SUGGESTED" : profile.techniques().isEmpty() ? "NONE" : "UNKNOWN";
         return new Result(verdict, hypotheses);
@@ -264,6 +265,25 @@ public final class ObfuscatorClassifier {
             + p.metric("bvm.stub_methods"));
         rule.add(p.metric("bvm.code_pools") > 0, 30, "$CodePool classes: " + p.metric("bvm.code_pools"));
         rule.add(rule.score > 0 && p.metric("bvm.stub_methods") >= 3, 10, "three or more virtualized methods");
+        rule.into(out);
+    }
+
+    /**
+     * Ambien (iiiiiiiris/Ambien, MIT): its zip comment (on by default), red herring jar, string decryptor, reference hider
+     * and crashers. Each is a shape of its own; any one of the strong ones names it.
+     */
+    private static void ambien(ObfuscationProfile p, List<Hypothesis> out) {
+        var rule = new Rule("Ambien");
+        rule.add(p.metric("ambien.archive_comment") > 0, 80, "archive comment naming Ambien (its default)");
+        rule.add(p.metric("ambien.red_herring") > 0, 80, "red herring class Ambien extending itself");
+        rule.add(p.metric("ambien.string_decryptors") > 0, 50, "string decryptors (String, int, int)String seeding a Random and decoding Base64: "
+            + p.metric("ambien.string_decryptors"));
+        rule.add(p.metric("ambien.reference_hiders") > 0, 50, "reference hiders (String, String, String)MutableCallSite through Class.forName and findStatic: "
+            + p.metric("ambien.reference_hiders"));
+        rule.add(p.metric("ambien.line_feed_annotations") >= 3, 35, "annotations whose type is a run of line feeds: " + p.metric("ambien.line_feed_annotations"));
+        rule.add(p.metric("ambien.html_class") > 0, 20, "class named <html><img src=\"https:...");
+        rule.add(p.metric("ambien.self_inheritance") > 0, 20, "class extending itself: " + p.metric("ambien.self_inheritance"));
+        rule.add(rule.score > 0 && p.metric("packaging.folder_classes") > 0, 10, "classes hidden as folders (X.class/): " + p.metric("packaging.folder_classes"));
         rule.into(out);
     }
 

@@ -538,9 +538,11 @@ public final class DecompilationJob {
         var builder = new dev.classrevive.bytecode.ObfuscationProfile.Builder();
         classes.values().forEach(builder::addClass);
         if (jar) try (var zip = new ZipFile(snapshot.toFile())) {
+            builder.addArchiveComment(zip.getComment());
             var entries = zip.entries(); int visited = 0;
             while (entries.hasMoreElements() && visited++ < 100_000) {
                 var entry = entries.nextElement();
+                if (entry.isDirectory()) builder.addDirectory(entry.getName());
                 if (!entry.isDirectory() && !entry.getName().toLowerCase(Locale.ROOT).endsWith(".class")) builder.addResource(entry.getName(), entry.getSize());
             }
         }
