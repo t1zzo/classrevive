@@ -224,6 +224,39 @@ class StubSynthesizerTest {
             "-cp", jar.toString(), "-d", dir.resolve("deep-classes").toString(), source.toString()));
     }
 
+    /**
+     * Converted dex code can pass a {@code Shape} where a {@code Round} is declared (its verifier dropped the cast after
+     * instanceof), and a {@code Round} where {@code Shape.Callback} is declared. Taken as they are, Shape would extend Round,
+     * which implements Shape's own member type: javac's "cyclic inheritance", which stops every file that names Shape.
+     */
+    @Test void noStubSupertypeReachesAMemberOfTheStubItself() throws Exception {
+        var writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC | Opcodes.ACC_SUPER, "app/Uses", null, "java/lang/Object", null);
+        String[][] calls = {
+            {"a", "(Llib/Shape;)V", "lib/Round", "take", "(Llib/Round;)V"},
+            {"b", "(Llib/Round;)V", "lib/Util", "call", "(Llib/Shape$Callback;)V"}};
+        for (String[] call : calls) {
+            var m = writer.visitMethod(Opcodes.ACC_STATIC, call[0], call[1], null, null);
+            m.visitCode(); m.visitVarInsn(Opcodes.ALOAD, 0);
+            m.visitMethodInsn(Opcodes.INVOKESTATIC, call[2], call[3], call[4], false);
+            m.visitInsn(Opcodes.RETURN); m.visitMaxs(0, 0); m.visitEnd();
+        }
+        var c = writer.visitMethod(Opcodes.ACC_STATIC, "c", "(Llib/Shape$Callback;)V", null, null);
+        c.visitCode(); c.visitVarInsn(Opcodes.ALOAD, 0);
+        c.visitMethodInsn(Opcodes.INVOKEINTERFACE, "lib/Shape$Callback", "run", "()V", true);
+        c.visitInsn(Opcodes.RETURN); c.visitMaxs(0, 0); c.visitEnd();
+        writer.visitEnd();
+        var jar = dir.resolve("cycle/stubs.jar");
+        StubSynthesizer.synthesize(Map.of("app/Uses", writer.toByteArray()), List.of(), jar);
+        var source = Files.createDirectories(dir.resolve("cycle-src/app")).resolve("Sub.java");
+        Files.writeString(source, "package app; public abstract class Sub extends lib.Shape { }");
+        var errors = new java.io.StringWriter();
+        ToolProvider.getSystemJavaCompiler().run(null, null, new java.io.PrintStream(new java.io.OutputStream() {
+                @Override public void write(int b) { errors.write(b); } }), "--release", "8", "-Xlint:-options", "-proc:none",
+            "-cp", jar.toString(), "-d", dir.resolve("cycle-classes").toString(), source.toString());
+        assertFalse(errors.toString().contains("cyclic inheritance"), errors.toString());
+    }
+
     @Test void truncatedOnlyWhenAMissingTypeWasRefused() throws Exception {
         var exact = StubSynthesizer.synthesize(Map.of("app/Calls", caller("lib/A", "lib/B")), List.of(), dir.resolve("exact/stubs.jar"), 2);
         assertEquals(2, exact.classes().size());
