@@ -19,7 +19,7 @@ public final class CompilerWorker {
         for (int i = 3; i < args.length; i++) dependencies.add(Path.of(args[i]));
         // Errors before the first ENTER event are syntax errors: javac then stops before attribution, so a single
         // unparsable file hides every other error and no class is generated. Per-file counts guide hybrid selection.
-        int[] errors = {0}, syntaxErrors = {0};
+        int[] errors = {0}, syntaxErrors = {0}, printed = {0};
         boolean[] entered = {false};
         var fileErrors = new TreeMap<String,Integer>();
         var missingPackages = new TreeMap<String,Integer>(); // "package X does not exist": likely a dependency not on the classpath
@@ -49,10 +49,11 @@ public final class CompilerWorker {
                             if (missing.find() && (missingPackages.size() < 50 || missingPackages.containsKey(missing.group(1)))) missingPackages.merge(missing.group(1), 1, Integer::sum);
                         }
                     }
-                    System.out.println(diagnostic.getCode() + ": " + diagnostic.getMessage(Locale.ROOT));
+                    // The log keeps the first diagnostics; the counts above take every one.
+                    if (printed[0]++ < MAX_PRINTED) System.out.println(diagnostic.getCode() + ": " + diagnostic.getMessage(Locale.ROOT));
                 }, List.of("--release", args[2], "-proc:none", "-implicit:none", "-encoding", "UTF-8",
                     "-sourcepath", empty.toString(), "-d", output.toString(),
-                    "-Xmaxerrs", "1000"), null, manager.getJavaFileObjectsFromFiles(files));
+                    "-Xmaxerrs", Integer.toString(MAX_ERRORS)), null, manager.getJavaFileObjectsFromFiles(files));
                 task.addTaskListener(new com.sun.source.util.TaskListener() {
                     @Override public void started(com.sun.source.util.TaskEvent event) {
                         if (event.getKind() == com.sun.source.util.TaskEvent.Kind.ENTER) entered[0] = true;
@@ -78,6 +79,13 @@ public final class CompilerWorker {
         Files.writeString(output.getParent().resolve("file-errors.txt"), lines, java.nio.charset.StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
         Files.writeString(output.getParent().resolve("diagnostics.tsv"), diagnostics, java.nio.charset.StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
     }
+    /**
+     * javac's {@code -Xmaxerrs}: high enough that a whole-tree compilation reports every error, so candidates are compared
+     * on their real totals (at 1000, an error a swapped file caused in its callers went unseen on a large jar).
+     */
+    public static final int MAX_ERRORS = 100_000;
+    /** Diagnostics printed to the worker's log. */
+    static final int MAX_PRINTED = 1000;
     /** Located errors kept as failure evidence (file, line, column, code, message); javac itself stops at 100. */
     static final int MAX_DIAGNOSTICS = 100, MAX_MESSAGE = 500;
     private static long position(long value) { return value == Diagnostic.NOPOS ? -1 : value; }

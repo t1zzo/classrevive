@@ -34,6 +34,7 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 ### Engines and selection
 
 - Inferred stand-ins for missing libraries never give a type a supertype that reaches one of its own member types. Converted Android code could lead there (`Drawable` placed below `AdaptiveIconDrawable`, which implements `Drawable.Callback`), and javac's "cyclic inheritance" then stopped every file naming the type, so the per-file round trip of a large APK compiled nothing.
+- Hybrid selection no longer keeps a replacement that fixes its own file but breaks the files that use it (a decompiler declaring a `throws` clause the bytecode does not, so every caller fails): when both mixes parse, the errors that grew in other files are charged to the replacements whose class they name (by simple name in the same package, by qualified name from another), and a replacement whose charge outweighs what it fixed is reverted. javac now reports up to 100,000 errors per compilation instead of 1,000, so per-file counts on large inputs are no longer cut short; the compiler log still prints the first 1,000.
 
 ## [0.3.0] - 2026-11-11
 

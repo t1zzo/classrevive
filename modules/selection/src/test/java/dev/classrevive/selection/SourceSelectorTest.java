@@ -34,6 +34,33 @@ class SourceSelectorTest {
         assertEquals("public class A {}", Files.readString(dir.resolve("selection/sources/A.java")));
         assertTrue(Files.readString(bad.resolve("A.java")).contains("nonsense"));
     }
+    @Test void errorsAreCountedPastJavacsDefaultCap() throws Exception {
+        // 1200 errors in one tree: at -Xmaxerrs 1000 javac stopped counting and candidates could not be compared.
+        var body = new StringBuilder("public class A { void f() { ");
+        for (int i = 0; i < 1200; i++) body.append("int a").append(i).append(" = \"x\"; ");
+        var many = candidate("many", body.append("} }").toString(), null);
+        var result = new SourceSelector(false).select(Map.of("many", many), dir.resolve("selection"), List.of(info("A")), Duration.ofSeconds(60));
+        assertEquals(1200, result.tried().getFirst().verification().errors());
+    }
+    @Test void aReplacementThatBreaksTheFilesUsingItIsReverted() throws Exception {
+        // cfr's A has an error; jadx's A compiles alone but declares a throws clause, so cfr's B, which calls it, fails.
+        var cfr = candidate("cfr", "public class A { static void f() { int x = \"s\"; } }", "public class B { void g() { A.f(); } }");
+        var jadx = candidate("jadx", "public class A { static void f() throws Exception {} }", "public class B { broken }");
+        var result = new SourceSelector(false).select(Map.of("cfr", cfr, "jadx", jadx), dir.resolve("selection"), List.of(info("A"), info("B")), Duration.ofSeconds(30));
+        String report = Files.readString(dir.resolve("selection/selection.txt"));
+        // The swap is not carried into the next mixes; which attempt is selected is still decided by the evidence.
+        assertTrue(report.contains("1 replacement(s) reverted: files that use them got more errors"), report);
+        assertEquals("cfr", result.provenance().get("B.java"), report);
+    }
+    @Test void aUserNamesASwappedClassBySimpleNameOnlyInItsOwnPackage() {
+        assertTrue(SourceSelector.names("p/B.java", "class B { D d; }", List.of("p/D.java")));
+        assertTrue(SourceSelector.names("p/B.java", "class B { D.E e; }", List.of("p/D$E.java")));
+        // Obfuscated one-letter names: a bare D in another package is not a use of p.D.
+        assertFalse(SourceSelector.names("q/B.java", "class B { int D; }", List.of("p/D.java")));
+        assertTrue(SourceSelector.names("q/B.java", "import p.D; class B { D d; }", List.of("p/D.java")));
+        assertTrue(SourceSelector.names("q/B.java", "class B { p . D d; }", List.of("p/D.java")));
+        assertFalse(SourceSelector.names("q/B.java", "class B { xp.D d; }", List.of("p/D.java")));
+    }
     @Test void repairsComplementaryFailuresByWholeCompilationUnit() throws Exception {
         var first = candidate("first", "public class A {}", "public class B { broken }");
         var second = candidate("second", "public class A { broken }", "public class B {}");

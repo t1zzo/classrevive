@@ -194,13 +194,34 @@ public final class SourceSelector {
             // Keep each replacement that made its own file better; revert the others before the next round. A file
             // that now fails to parse is reverted when the mix used to parse: its count is not comparable.
             var next = new TreeMap<>(result.fileErrors()); var previous = mixErrors;
+            // A swap can fix its own file and break the files that use it (JADX declares a throws clause the bytecode does
+            // not, and every caller then fails). Counts are only comparable when both mixes parsed: javac attributes nothing
+            // while a file fails to parse. Files outside the swaps whose errors grew are read once; their growth is charged to
+            // the swaps whose class they name, and a swap is reverted when that charge outweighs what it fixed.
+            boolean comparable = mixParsed && result.syntaxErrors() == 0;
+            var swappedKeys = new HashSet<String>(); swapped.forEach(take -> swappedKeys.addAll(take.keys()));
+            var grew = new ArrayList<Grown>();
+            if (comparable) for (var entry : result.fileErrors().entrySet()) {
+                int growth = entry.getValue() - previous.getOrDefault(entry.getKey(), 0);
+                if (growth > 0 && !swappedKeys.contains(entry.getKey()) && files.containsKey(entry.getKey()))
+                    grew.add(new Grown(entry.getKey(), SourceText.mask(Files.readString(files.get(entry.getKey()))), growth));
+            }
+            var charge = new IdentityHashMap<Take,Double>();
+            for (var grown : grew) {
+                var users = swapped.stream().filter(take -> names(grown.key(), grown.text(), take.keys())).toList();
+                for (var take : users) charge.merge(take, (double) grown.growth() / users.size(), Double::sum);
+            }
+            int collateral = 0;
             for (var take : swapped) {
                 int before = take.before().keySet().stream().mapToInt(key -> previous.getOrDefault(key, 0)).sum();
                 int after = take.keys().stream().mapToInt(key -> result.fileErrors().getOrDefault(key, 0)).sum();
-                if (after < before && !(after > 0 && result.syntaxErrors() > 0 && mixParsed)) continue;
+                boolean breaksUsers = after < before && charge.getOrDefault(take, 0.0) >= before - after;
+                if (breaksUsers) collateral++;
+                if (after < before && !(after > 0 && result.syntaxErrors() > 0 && mixParsed) && !breaksUsers) continue;
                 take.undo(files, origins); take.keys().forEach(next::remove);
                 for (var key : take.before().keySet()) if (mixErrors.containsKey(key)) next.put(key, mixErrors.get(key));
             }
+            if (collateral > 0) report.append("  ").append(collateral).append(" replacement(s) reverted: files that use them got more errors\n");
             mix = files; mixOrigins = origins; mixErrors = next; mixParsed |= result.syntaxErrors() == 0;
         }
         var wholeTried = new HashSet<String>();
@@ -810,6 +831,31 @@ public final class SourceSelector {
      * A candidate without .java files (an engine that failed before writing sources) always ranks last: javac then
      * reports COMPILE_FAILED with 0 errors, which would otherwise beat a real candidate with errors (Phase 2BE).
      */
+    private record Grown(String key, String text, int growth) {}
+
+    /**
+     * Whether the file {@code user} (its text with comments and literals masked) names the top-level class of any of the
+     * files: by simple name in the same package, or by qualified name (an import or a qualified use) from another one.
+     * Obfuscated simple names are one or two letters, so a bare word in another package is not evidence.
+     */
+    static boolean names(String user, String text, Collection<String> files) {
+        String userPackage = packageOf(user);
+        for (String file : files) {
+            String simple = file.substring(file.lastIndexOf('/') + 1).replaceFirst("\\.java$", "");
+            int dollar = simple.indexOf('$');
+            if (dollar > 0) simple = simple.substring(0, dollar);
+            String filePackage = packageOf(file);
+            if (!filePackage.equals(userPackage) && filePackage.isEmpty()) continue;
+            var parts = new ArrayList<String>();
+            if (!filePackage.equals(userPackage)) for (String part : filePackage.split("/")) parts.add(java.util.regex.Pattern.quote(part));
+            parts.add(java.util.regex.Pattern.quote(simple));
+            var word = java.util.regex.Pattern.compile("(?<![\\p{L}\\p{N}_$.])" + String.join("\\s*\\.\\s*", parts) + "(?![\\p{L}\\p{N}_$])");
+            if (word.matcher(text).find()) return true;
+        }
+        return false;
+    }
+    private static String packageOf(String file) { int slash = file.lastIndexOf('/'); return slash < 0 ? "" : file.substring(0, slash); }
+
     private static boolean better(Candidate a, Candidate b) {
         if (a.files.isEmpty() != b.files.isEmpty()) return b.files.isEmpty();
         return better(a.verification, b.verification);
@@ -866,7 +912,7 @@ public final class SourceSelector {
         report.append('\n');
     }
     /** javac's {@code -Xmaxerrs} in {@link CompilerWorker}: a compilation with this many errors stopped reporting. */
-    static final int JAVAC_ERROR_CAP = 1000;
+    static final int JAVAC_ERROR_CAP = CompilerWorker.MAX_ERRORS;
     /** Ranked above every count javac reported: the file was never reached. */
     private static final long UNREPORTED = 100_000;
     /**
