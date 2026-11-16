@@ -2,7 +2,7 @@
 
 **Recupere Java legível a partir de código compilado e meça o quanto dele está certo.**
 
-[English](README.md) | Português (Brasil)
+[English](README.md) | Português (Brasil) | [Español](README.es.md) | [Italiano](README.it.md) | [Français](README.fr.md)
 
 ![O aplicativo desktop do ClassRevive mostrando uma classe descompilada do Gson: a árvore de pacotes à esquerda, o código escolhido com uma bolinha verde de recompilação ao lado de cada método no meio, e o nível de confiança e as evidências da classe à direita](docs/images/desktop-class-dark-pt-BR.png)
 
