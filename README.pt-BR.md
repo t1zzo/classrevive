@@ -2,7 +2,7 @@
 
 **Recupere Java legível a partir de código compilado e meça o quanto dele está certo.**
 
-[English](README.md) | Português (Brasil)
+[English](README.md) | Português (Brasil) | [Español](README.es.md) | [Italiano](README.it.md) | [Français](README.fr.md)
 
 ![O aplicativo desktop do ClassRevive mostrando uma classe descompilada do Gson: a árvore de pacotes à esquerda, o código escolhido com uma bolinha verde de recompilação ao lado de cada método no meio, e o nível de confiança e as evidências da classe à direita](docs/images/desktop-class-dark-pt-BR.png)
 
@@ -15,14 +15,14 @@ O ClassRevive roda quatro descompiladores Java conhecidos (CFR, Vineflower, Proc
 - **Descompila com quatro descompiladores e escolhe por arquivo e por método.** Cada descompilador roda na sua própria JVM. Os candidatos são ordenados por recompilar ou não, por quantas assinaturas estruturais batem com o original e por quantos corpos de método voltam idênticos ou equivalentes depois de recompilados.
 - **Confere em vez de adivinhar.** Todo resultado diz o que foi medido: recompilação, assinaturas por classe, ida e volta por método. Resultados parciais guardam uma listagem legível do bytecode do que não pôde ser recuperado.
 - **Lida com entradas difíceis.** Jars multi-release, nomes de classe que colidem por maiúsculas e minúsculas, executáveis que carregam um jar, pacotes de jars, APK e dex do Android (convertidos com o dex2jar).
-- **Detecta ofuscação e desfaz parte dela.** Um perfil estático aponta as técnicas e o ofuscador que elas indicam, com uma pontuação e os motivos. Dois ofuscadores comunitários (Skidfuscator e Aidsfuscator) são revertidos automaticamente, e as flags de predicado opaco do Zelix KlassMaster comprovadamente constantes são simplificadas.
+- **Detecta ofuscação e desfaz parte dela.** Um perfil estático aponta as técnicas e o ofuscador que elas indicam, com uma pontuação e os motivos. Três ofuscadores de código aberto (Skidfuscator, Aidsfuscator e Radon) e o Zelix KlassMaster 27 são revertidos automaticamente, e as flags de predicado opaco do Zelix KlassMaster comprovadamente constantes são simplificadas.
 - **Nunca executa o código que analisa.** As classes analisadas nunca são inicializadas e os métodos delas nunca são chamados. Veja [Segurança](#segurança-e-uso-responsável) para a fronteira exata.
 
 ## O que ele não faz
 
 - Não prova que o programa recuperado se comporta como o original. O comportamento é sempre informado como `NOT_VERIFIED`.
 - Não traz de volta o que a compilação descartou: comentários, formatação e, muitas vezes, os nomes das variáveis locais.
-- Não recupera nomes que um ofuscador trocou, a menos que você forneça o arquivo de mapeamento do ofuscador.
+- Não recupera os nomes originais que um ofuscador removeu. Você pode fornecer o arquivo de mapeamento do ofuscador (ProGuard, R8, yGuard) ou pedir nomes deduzidos (`--infer-names`), que vêm marcados como palpites, com as suas evidências.
 - A recompilação roda no JDK 21; por isso, arquivos `.class` feitos para Java 22 ou mais novo são lidos e listados, mas não conferidos.
 - Não é antivírus nem sandbox. As JVMs auxiliares isolam falhas, não código hostil.
 - Não descompila código nativo para Java. Bibliotecas nativas incluídas podem passar por triagem, opcionalmente com um Ghidra que você mesmo instala.
@@ -55,12 +55,12 @@ Nunca descompilou nada? Leia o [guia para iniciantes](docs/guia-iniciante.md).
 
 | Recurso | O que você tem | Documentação |
 |---|---|---|
-| Aplicativo desktop | Explorador de pacotes e classes, bytecode antes de descompilar, progresso ao vivo com cancelamento, confiança por classe e marcas de ida e volta por método, erros do javac sublinhados, comparação lado a lado entre descompiladores, encontrar usos e hierarquia de chamadas, ir para classe, pesquisa no código, exportação como projeto de IDE, temas escuro e claro, português e inglês | [Guia para iniciantes](docs/guia-iniciante.md#4-o-aplicativo-desktop) |
+| Aplicativo desktop | Explorador de pacotes e classes com filtro de confiança, bytecode antes de descompilar, progresso ao vivo com cancelamento, um veredito em linguagem simples, confiança por classe e marcas de ida e volta por método, erros do javac sublinhados, comparação lado a lado entre descompiladores, encontrar usos e hierarquia de chamadas, ir para classe, pesquisa no código, exportação como projeto de IDE, temas escuro e claro, português e inglês | [Guia para iniciantes](docs/guia-iniciante.md#4-o-aplicativo-desktop) |
 | Seleção conferida | Recompilação, assinaturas estruturais, ida e volta por método, híbridos limitados, reparos de código guiados pelo compilador, composição por método entre descompiladores | [Arquitetura](ARCHITECTURE.md#selection-and-composition) (em inglês) |
 | Entradas | `.class`, `.jar`, jars multi-release, executáveis com um jar dentro, pacotes de jars, APK e dex do Android | [Referência da CLI](docs/cli-reference.md#executables-bundles-and-android-inputs) (em inglês) |
 | Bibliotecas ausentes | Passe os seus jars com `--classpath`; sem eles, substitutos deduzidos deixam o resultado compilar, e ele é marcado como *stub-backed* | [Referência da CLI](docs/cli-reference.md#selection-evidence-and-limits) (em inglês) |
-| Ofuscação | Perfil estático das técnicas e hipóteses de ofuscador com pontuação; reversão de Skidfuscator e Aidsfuscator; simplificação de flags de predicado opaco; passes opcionais de constantes e de decodificação de strings | [Detecção de ofuscação](docs/obfuscation-detection.md) (em inglês) |
-| Renomeação | Apelidos legíveis, arquivos de mapeamento explícitos ou um mapeamento do ProGuard/R8 para restaurar os nomes originais onde isso é seguro | [Referência da CLI](docs/cli-reference.md#rename-experimental) (em inglês) |
+| Ofuscação | Perfil estático das técnicas e hipóteses de ofuscador com pontuação; reversão de Skidfuscator, Aidsfuscator, Radon e Zelix KlassMaster 27; um passe geral de simplificação do fluxo de controle; simplificação de flags de predicado opaco; passes opcionais de constantes e de decodificação de strings | [Detecção de ofuscação](docs/obfuscation-detection.md) (em inglês) |
+| Renomeação | Apelidos legíveis, arquivos de mapeamento explícitos, um mapeamento do ProGuard/R8 ou um log do yGuard para restaurar os nomes originais onde isso é seguro, e nomes deduzidos opcionais, marcados com as suas evidências | [Referência da CLI](docs/cli-reference.md#rename-experimental) (em inglês) |
 | Diagnóstico | Pistas estáticas de reflexão, carregamento de classes, invokedynamic e criptografia; impressão digital do compilador; reconhecimento de bibliotecas embutidas; triagem opcional de bibliotecas nativas com o Ghidra | [Referência da CLI](docs/cli-reference.md#diagnose) (em inglês) |
 | Relatórios | `report.txt`, `report.json` (esquema v1), um mapa de confiança `report.html` autocontido, exportação como projeto de IDE | [Formato dos relatórios](docs/reports.md) (em inglês) |
 | Medição | Comando de benchmark, um placar com bibliotecas do Maven Central conferidas por hash e um laboratório de falhas que transforma falhas em testes de regressão | [Benchmarks](docs/benchmarks.md) (em inglês) |
@@ -129,7 +129,7 @@ Os nomes de ofuscadores e produtos (Zelix KlassMaster, Allatori, DashO, Stringer
 - [Guia para iniciantes](docs/guia-iniciante.md) · [Getting started](docs/getting-started.md) (em inglês)
 - [Referência da linha de comando](docs/cli-reference.md) (em inglês)
 - [Arquitetura](ARCHITECTURE.md) e [situação: o que funciona e o que falta](docs/status.md) (em inglês)
-- [Formato dos relatórios](docs/reports.md) · [Detecção de ofuscação](docs/obfuscation-detection.md) · [Diagnóstico de ligação dinâmica](docs/dynamic-diagnostics.md) (em inglês)
+- [Formato dos relatórios](docs/reports.md) · [Detecção de ofuscação](docs/obfuscation-detection.md) · [Simplificação do fluxo de controle](docs/control-flow.md) · [Radon e yGuard](docs/radon-yguard.md) · [Zelix KlassMaster 27](docs/zelix-klassmaster.md) · [Nomes deduzidos](docs/inferred-names.md) · [Diagnóstico de ligação dinâmica](docs/dynamic-diagnostics.md) (em inglês)
 - [Benchmarks](docs/benchmarks.md) · [Changelog](CHANGELOG.md) (em inglês)
 - Experimental: [API de passes](docs/pass-sdk.md), [sandbox](docs/sandbox.md), [protocolo de comportamento](docs/behavior-protocol.md) (em inglês)
 

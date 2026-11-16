@@ -2,7 +2,7 @@
 
 **Recover readable Java from compiled code, and measure how much of it is right.**
 
-English | [Português (Brasil)](README.pt-BR.md)
+English | [Português (Brasil)](README.pt-BR.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Français](README.fr.md)
 
 ![The ClassRevive desktop application showing a decompiled Gson class: package tree on the left, the selected source with a green round-trip dot next to each method in the middle, and the class's confidence level and evidence on the right](docs/images/desktop-class-dark.png)
 
