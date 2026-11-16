@@ -29,6 +29,15 @@ class SkidfuscatorFlowTest {
                 waitFor(() -> onEdt(() -> window.workspace() != null));
                 assertTrue(window.workspace().obfuscation().skidfuscator());
                 assertTrue(onEdt(() -> window.banner().offersReversal()), "the banner offers the reversal");
+                // Phase G9: a plain decompile asks first, with the reversal and the original as two described answers;
+                // cancelling starts nothing.
+                var asked = new java.util.ArrayList<ChoiceDialog.Option>();
+                window.skidQuestion = (parent, title, icon, headline, message, options) -> { asked.addAll(options); return -1; };
+                SwingUtilities.invokeAndWait(() -> window.decompile(false, null));
+                assertEquals(java.util.List.of(Text.t("skid.reverseAndDecompile"), Text.t("skid.decompileOriginal")),
+                    asked.stream().map(ChoiceDialog.Option::title).toList());
+                assertTrue(asked.stream().allMatch(option -> !option.description().isBlank()));
+                assertFalse(onEdt(window::running), "cancelling the question starts nothing");
 
                 SwingUtilities.invokeAndWait(() -> window.decompile(false, true));
                 waitFor(() -> onEdt(() -> !window.running()));

@@ -36,6 +36,8 @@ final class UsagesPanel extends JPanel {
     private UnaryOperator<String> treeNames = UnaryOperator.identity();
     private IntConsumer redo = level -> { };
     private boolean adjusting;
+    private final CardLayout cards = new CardLayout();
+    private final JPanel body = new JPanel(cards);
 
     UsagesPanel(Consumer<ReferenceIndex.Site> open, Runnable cancelIndex) {
         super(new BorderLayout());
@@ -68,7 +70,21 @@ final class UsagesPanel extends JPanel {
         });
         var scroll = new JScrollPane(tree);
         scroll.setBorder(Ui.topLine());
-        add(scroll, BorderLayout.CENTER);
+        // Phase G9: before the first search the area explains how to start one, with the keys drawn.
+        var empty = new JPanel(new GridBagLayout());
+        empty.setBorder(Ui.topLine());
+        var hint = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
+        hint.setOpaque(false);
+        hint.add(Ui.keycaps(Ui.shortcut("alt F7")));
+        hint.add(Ui.muted(Text.t("usages.emptyUsages")));
+        hint.add(Box.createHorizontalStrut(12));
+        hint.add(Ui.keycaps(Ui.shortcut("ctrl alt H")));
+        hint.add(Ui.muted(Text.t("usages.emptyHierarchy")));
+        empty.add(hint);
+        body.setOpaque(false);
+        body.add(empty, "empty");
+        body.add(scroll, "tree");
+        add(body, BorderLayout.CENTER);
         showDepth(false);
     }
 
@@ -82,6 +98,7 @@ final class UsagesPanel extends JPanel {
         title.setText(text);
         showDepth(false);
         tree.setModel(new DefaultTreeModel(new DefaultMutableTreeNode()));
+        cards.show(body, "empty");
     }
 
     /** Usages of {@code target}, grouped by class and member. */
@@ -105,6 +122,7 @@ final class UsagesPanel extends JPanel {
             root.add(classNode);
         });
         tree.setModel(new DefaultTreeModel(root));
+        cards.show(body, "tree");
         // Expand everything for small results, the classes only for large ones.
         int limit = usages.size() <= 400 ? Integer.MAX_VALUE : root.getChildCount();
         for (int i = 0; i < tree.getRowCount() && i < limit + 2000; i++) {
@@ -130,6 +148,7 @@ final class UsagesPanel extends JPanel {
         var model = new DefaultMutableTreeNode();
         model.add(top);
         tree.setModel(new DefaultTreeModel(model));
+        cards.show(body, "tree");
         for (int i = 0; i < tree.getRowCount() && i < 500; i++) tree.expandRow(i);
         tree.setSelectionRow(0);
     }
@@ -209,7 +228,16 @@ final class UsagesPanel extends JPanel {
                     setIcon(Icons.kind('C', ExplorerPanel.kindColor('C'), null));
                 }
                 case MemberGroup group -> { setText(member(group.from(), treeNames) + "  (" + group.count() + ")"); setIcon(Icons.of(Icons.Glyph.GOTO, 14)); }
-                case SiteNode site -> { setText(site(site.usage(), treeNames)); setIcon(Icons.of(Icons.Glyph.FORWARD, 12)); }
+                case SiteNode site -> {
+                    var usage = site.usage();
+                    String muted = String.format("#%06X", (selected ? getForeground() : Theme.muted()).getRGB() & 0xFFFFFF);
+                    String text = "<font color='" + muted + "'>" + Ui.escape(Text.t("usages.kind." + usage.site().kind().name())) + "</font>&nbsp; <b>"
+                        + Ui.escape(describe(usage.site().target(), treeNames)) + "</b>";
+                    if (usage.via() != null) text += " <font color='" + muted + "'>" + Ui.escape(Text.t("usages.via", describe(usage.via(), treeNames))) + "</font>";
+                    if (usage.site().line() > 0) text += " <font color='" + muted + "'>\u00b7 " + Ui.escape(Text.t("usages.line", usage.site().line())) + "</font>";
+                    setText("<html>" + text + "</html>");
+                    setIcon(Icons.of(Icons.Glyph.FORWARD, 12, selected ? null : Theme.accentText()));
+                }
                 case CallerNode caller -> {
                     var node = caller.node();
                     String text = describe(node.method(), treeNames);

@@ -144,14 +144,14 @@ The sources are in `program-decompiled/selection/sources/`, in folders by packag
 
 ### How much to trust each class
 
-Open `program-decompiled/report.html` in a browser. It is a **confidence map** with a color per class:
+Open `program-decompiled/report.html` in a browser. It is a **confidence map** with a color per class, the same colors as in the desktop application. It opens with one sentence saying what the result means, and the buttons under the legend show only one level, or the classes that need attention.
 
 | Level | Meaning |
 |---|---|
 | **exact** (green) | every method came back identical or equivalent to the original |
-| **close** (light green) | it compiles, but some methods differ |
-| **per file** (blue) | the whole program does not compile, but this class's file does |
-| **partial** (orange) | parts of the structure are missing |
+| **close** (blue) | it compiles, but some methods differ |
+| **per file** (yellow) | the whole program does not compile, but this class's file does |
+| **partial** (purple) | parts of the structure are missing |
 | **unverified** (red) | it could not be checked because the file has errors |
 
 ### Everything else in the folder

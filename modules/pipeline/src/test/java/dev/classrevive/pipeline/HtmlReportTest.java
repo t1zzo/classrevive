@@ -38,6 +38,22 @@ class HtmlReportTest {
         // Self-contained: no script and no external resource.
         assertFalse(html.contains("<script") || html.contains("http://") || html.contains("https://") || html.contains("src="), html);
         assertTrue(html.contains("not proof of behavior"), html);
+        // Phase G9: a verdict in plain words, a level filter without a script, and the desktop's level colors.
+        assertTrue(html.contains("<p class=\"verdict ok\"><b>Everything checks out: the recovered source recompiles, and all 2 classes match the original.</b>"), html);
+        assertTrue(html.contains("id=\"f-attention\"") && html.contains("id=\"f-unverified\""), html);
+        for (String color : List.of("--exact:#3fb950", "--close:#58a6ff", "--per-file:#d7b53c", "--partial:#b980f0", "--unverified:#f0605a"))
+            assertTrue(html.contains(color), color);
+        assertTrue(html.contains("<title>calc.jar &middot; ClassRevive report</title>"), html);
+        assertTrue(html.contains(">Compiles</span>"), html);
+    }
+
+    @Test void namesStatusesAndCandidatesAsPeopleReadThem() {
+        assertEquals("Compiles", HtmlReport.statusName(dev.classrevive.verification.VerificationResult.Status.COMPILED));
+        assertEquals("Compile errors", HtmlReport.statusName(dev.classrevive.verification.VerificationResult.Status.COMPILE_FAILED));
+        assertEquals("Mix of engines", HtmlReport.candidateName("hybrid-6"));
+        assertEquals("Methods combined", HtmlReport.candidateName("recompose-1"));
+        assertEquals("Vineflower", HtmlReport.candidateName("vineflower"));
+        assertEquals("none", HtmlReport.candidateName(""));
     }
 
     @Test void escapesEveryNameTakenFromTheInput() {

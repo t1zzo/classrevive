@@ -137,14 +137,14 @@ A pasta `programa-descompilado/project/` é um **projeto pronto**: o código em 
 
 ### O quanto confiar em cada classe
 
-Abra `programa-descompilado/report.html` no navegador. É um **mapa de confiança**, com uma cor por classe:
+Abra `programa-descompilado/report.html` no navegador. É um **mapa de confiança**, com uma cor por classe, as mesmas cores do aplicativo desktop. Ele abre com uma frase dizendo o que o resultado significa, e os botões abaixo da legenda mostram só um nível, ou as classes que precisam de atenção.
 
 | Nível | Significado |
 |---|---|
 | **exact** (verde) | todos os métodos voltaram idênticos ou equivalentes ao original |
-| **close** (verde-claro) | compila, mas alguns métodos ficaram diferentes |
-| **per file** (azul) | o programa inteiro não compila, mas o arquivo dessa classe sim |
-| **partial** (laranja) | faltam partes da estrutura |
+| **close** (azul) | compila, mas alguns métodos ficaram diferentes |
+| **per file** (amarelo) | o programa inteiro não compila, mas o arquivo dessa classe sim |
+| **partial** (roxo) | faltam partes da estrutura |
 | **unverified** (vermelho) | não deu para conferir, porque o arquivo tem erros |
 
 ### As outras coisas na pasta

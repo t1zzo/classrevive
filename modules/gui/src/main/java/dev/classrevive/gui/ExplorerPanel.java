@@ -61,6 +61,9 @@ final class ExplorerPanel extends JPanel {
         filter.putClientProperty(FlatClientProperties.TEXT_FIELD_SHOW_CLEAR_BUTTON, true);
         levelButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
         levelButton.setToolTipText(Text.t("explorer.levelFilter"));
+        levelButton.getAccessibleContext().setAccessibleName(Text.t("explorer.levelFilter"));
+        filter.getAccessibleContext().setAccessibleName(Text.t("explorer.filter"));
+        tree.getAccessibleContext().setAccessibleName(Text.t("explorer.classes"));
         levelButton.setFocusable(false);
         levelButton.addActionListener(e -> levelMenu().show(levelButton, 0, levelButton.getHeight()));
         var filterRow = new JPanel(new BorderLayout(4, 0));

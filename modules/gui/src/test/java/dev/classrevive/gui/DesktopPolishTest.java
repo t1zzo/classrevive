@@ -79,6 +79,51 @@ class DesktopPolishTest {
         assertTrue(shortened.startsWith("C:\\Users") && shortened.endsWith("here") && shortened.contains("…"));
     }
 
+    /** Phase G9: recent files are reached with Tab and opened with Enter, and say what they open. */
+    @Test void recentFilesWorkFromTheKeyboard(@org.junit.jupiter.api.io.TempDir Path directory) throws Exception {
+        var settings = GuiSettings.load(directory.resolve("settings.properties"));
+        Path jar = java.nio.file.Files.writeString(directory.resolve("app.jar"), "x");
+        settings.remember(jar);
+        var opened = new java.util.ArrayList<Path>();
+        var action = Ui.action("Open", null, null, () -> { });
+        var welcome = new WelcomePanel(settings, action, action, opened::add, () -> { });
+        var rows = welcome.recentRows();
+        assertEquals(1, rows.size());
+        var row = rows.getFirst();
+        assertTrue(row.isFocusable());
+        assertTrue(row.getAccessibleContext().getAccessibleName().contains("app.jar"), row.getAccessibleContext().getAccessibleName());
+        // Without a focused window Swing hands key events to the focus owner, so the row's own key listeners are called directly.
+        var enter = new java.awt.event.KeyEvent(row, java.awt.event.KeyEvent.KEY_PRESSED, 0, 0, java.awt.event.KeyEvent.VK_ENTER, '\n');
+        for (var listener : row.getKeyListeners()) listener.keyPressed(enter);
+        assertEquals(List.of(jar.toAbsolutePath().normalize()), opened);
+    }
+
+    /** Phase G9: a clickable card is a push button named after its text; the split button is named after its action. */
+    @Test void paintedButtonsSpeakAsButtons() {
+        var card = new Ui.Card(null).clickable(() -> { });
+        card.add(new javax.swing.JLabel("Open a Java program"));
+        card.add(Ui.text("Only the bytes are read.", true));
+        assertEquals(javax.accessibility.AccessibleRole.PUSH_BUTTON, card.getAccessibleContext().getAccessibleRole());
+        assertEquals("Open a Java program. Only the bytes are read.", card.getAccessibleContext().getAccessibleName());
+        var plain = new Ui.Card(null);
+        assertNotEquals(javax.accessibility.AccessibleRole.PUSH_BUTTON, plain.getAccessibleContext().getAccessibleRole());
+        var split = new Ui.SplitButton(Ui.action("Decompile", null, null, () -> { }), new javax.swing.JPopupMenu());
+        assertEquals("Decompile", split.getAccessibleContext().getAccessibleName());
+        assertEquals(javax.accessibility.AccessibleRole.PUSH_BUTTON, split.getAccessibleContext().getAccessibleRole());
+    }
+
+    /** Phase G9: the member chooser's filter matches the member or its class, ignoring case, keeping the order. */
+    @Test void memberChooserFiltersByMemberOrClass() {
+        var add = new dev.classrevive.bytecode.ReferenceIndex.Ref("shop/Shop", "add", "(I)V");
+        var other = new dev.classrevive.bytecode.ReferenceIndex.Ref("shop/Other", "add", "(I)V");
+        var stock = new dev.classrevive.bytecode.ReferenceIndex.Ref("shop/Shop", "stock", "I");
+        var all = List.of(add, other, stock);
+        assertEquals(all, MemberChooser.matching(all, "  ", name -> name));
+        assertEquals(List.of(other), MemberChooser.matching(all, "OTHER", name -> name));
+        assertEquals(List.of(stock), MemberChooser.matching(all, "stock", name -> name));
+        assertEquals(List.of(add, other), MemberChooser.matching(all, "add(", name -> name));
+    }
+
     @Test void clearingTheRecentListKeepsTheOtherSettings(@org.junit.jupiter.api.io.TempDir Path directory) throws Exception {
         var settings = GuiSettings.load(directory.resolve("settings.properties"));
         settings.fontSize(17);

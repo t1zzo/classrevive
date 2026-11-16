@@ -18,7 +18,7 @@ public final class BytecodeWorker {
                 try (var input = jar.getInputStream(entry)) {
                     byte[] bytes = input.readNBytes(16 * 1024 * 1024 + 1);
                     if (bytes.length > 16 * 1024 * 1024) throw new IOException("Class size limit");
-                    Path destination = Path.of(args[1]).resolve(String.format("%05d.txt", count));
+                    Path destination = Path.of(args[1]).resolve(String.format(java.util.Locale.ROOT, "%05d.txt", count));
                     try (var writer = new PrintWriter(Files.newBufferedWriter(destination, StandardOpenOption.CREATE_NEW))) {
                         writer.println("Original entry: " + entry.getName());
                         new ClassReader(bytes).accept(new TraceClassVisitor(writer), 0);
