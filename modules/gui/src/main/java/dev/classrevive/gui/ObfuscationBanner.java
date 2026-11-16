@@ -105,30 +105,76 @@ final class ObfuscationBanner extends JPanel {
         };
     }
 
+    /**
+     * Phase G9: the evidence in a dialog of its own: the disclaimer first, then one card per hypothesis (score bar, confidence
+     * and reasons), then the techniques with how many classes each touches.
+     */
     private void showDetails() {
-        if (detection == null) return;
-        var html = new StringBuilder("<html><body style='width:520px'>");
-        html.append("<p>").append(Ui.escape(Text.t("obfuscation.disclaimer"))).append("</p>");
+        var dialog = detailsDialog();
+        if (dialog != null) dialog.setVisible(true);
+    }
+
+    /** The details dialog, built but not shown; null without a detection. */
+    JDialog detailsDialog() {
+        if (detection == null) return null;
+        var body = new Ui.Column();
+        body.setBorder(Ui.padding(16, 18, 16, 18));
+        body.add(Ui.notice(new ResultInsights.Notice(ResultInsights.Severity.INFO, Text.t("obfuscation.disclaimerTitle"), Text.t("obfuscation.disclaimer"))));
         if (!detection.hypotheses().isEmpty()) {
-            html.append("<h3>").append(Ui.escape(Text.t("obfuscation.hypotheses"))).append("</h3>");
+            body.add(Box.createVerticalStrut(16));
+            body.add(Ui.section(Text.t("obfuscation.hypotheses")));
             for (var hypothesis : detection.hypotheses()) {
-                html.append("<p><b>").append(Ui.escape(hypothesis.obfuscator())).append("</b> &nbsp;").append(hypothesis.score()).append("/100, ")
-                    .append(Ui.escape(Text.t("confidence." + hypothesis.confidence()))).append("</p><ul>");
-                hypothesis.reasons().stream().limit(12).forEach(reason -> html.append("<li>").append(Ui.escape(reason)).append("</li>"));
-                html.append("</ul>");
+                var card = new Ui.Card(hypothesis == detection.top() ? Theme.ACCENT : null);
+                card.setLayout(new BorderLayout(0, 8));
+                card.setBorder(Ui.padding(12, 16, 12, 14));
+                var head = new JPanel(new BorderLayout(10, 0));
+                head.setOpaque(false);
+                head.add(Ui.styled(Ui.visible(hypothesis.obfuscator()), "semibold"), BorderLayout.WEST);
+                head.add(Ui.softChip(Text.t("confidence." + hypothesis.confidence()) + " \u00b7 " + hypothesis.score() + "/100", Theme.ACCENT), BorderLayout.EAST);
+                card.add(head, BorderLayout.NORTH);
+                var details = new Ui.Column();
+                details.setOpaque(false);
+                var bar = new Ui.Bar(new int[] {hypothesis.score(), 100 - hypothesis.score()}, new Color[] {Theme.ACCENT, Theme.line()},
+                    hypothesis.score() + "/100");
+                bar.setPreferredSize(new Dimension(240, 6));
+                details.add(bar);
+                details.add(Box.createVerticalStrut(8));
+                hypothesis.reasons().stream().limit(12).forEach(reason -> details.add(Ui.text("\u2022  " + Ui.visible(reason), true)));
+                if (hypothesis.reasons().size() > 12) details.add(Ui.faint(Text.t("obfuscation.moreReasons", hypothesis.reasons().size() - 12)));
+                card.add(details, BorderLayout.CENTER);
+                body.add(card);
+                body.add(Box.createVerticalStrut(8));
             }
         }
         if (!detection.techniques().isEmpty()) {
-            html.append("<h3>").append(Ui.escape(Text.t("obfuscation.techniques"))).append("</h3><ul>");
-            detection.techniques().forEach(technique -> html.append("<li>").append(Ui.escape(technique.label())).append(" &nbsp;<span style='color:gray'>")
-                .append(Ui.escape(Text.t("obfuscation.classes", technique.classes()))).append("</span></li>"));
-            html.append("</ul>");
+            body.add(Box.createVerticalStrut(8));
+            body.add(Ui.section(Text.t("obfuscation.techniques")));
+            var card = new Ui.Card(null);
+            card.setLayout(new BorderLayout());
+            card.setBorder(Ui.padding(8, 16, 8, 14));
+            var rows = Ui.rows(Integer.MAX_VALUE);
+            detection.techniques().forEach(technique -> Ui.row(rows, Ui.visible(technique.label()), Text.t("obfuscation.classes", technique.classes()), null));
+            card.add(rows, BorderLayout.CENTER);
+            body.add(card);
         }
-        html.append("</body></html>");
-        var label = new JLabel(html.toString());
-        var scroll = new JScrollPane(label);
+        var scroll = new JScrollPane(body, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.setPreferredSize(new Dimension(580, Math.min(460, label.getPreferredSize().height + 12)));
-        JOptionPane.showMessageDialog(window, scroll, Text.t("obfuscation.title"), JOptionPane.PLAIN_MESSAGE);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        scroll.setPreferredSize(new Dimension(600, Math.min(540, body.getPreferredSize().height + 4)));
+        var dialog = new JDialog(window, Text.t("obfuscation.title"), Dialog.ModalityType.APPLICATION_MODAL);
+        var close = new JButton(Text.t("dialog.close"));
+        close.addActionListener(e -> dialog.dispose());
+        var footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        footer.setBorder(BorderFactory.createCompoundBorder(Ui.topLine(), Ui.padding(10, 18, 12, 18)));
+        footer.add(close);
+        var root = new JPanel(new BorderLayout());
+        root.add(scroll, BorderLayout.CENTER);
+        root.add(footer, BorderLayout.SOUTH);
+        dialog.setContentPane(root);
+        dialog.getRootPane().setDefaultButton(close);
+        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(), KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        dialog.pack();
+        dialog.setLocationRelativeTo(window);
+        return dialog;
     }
 }

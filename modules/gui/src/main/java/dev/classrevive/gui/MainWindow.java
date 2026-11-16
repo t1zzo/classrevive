@@ -43,6 +43,9 @@ final class MainWindow extends JFrame {
     private UsageIndex.Built shown;
     /** Phase G6: asks which member is meant when several match; tests replace it. */
     MemberChooser.Ask chooser = MemberChooser::choose;
+    /** Phase G9: asks a question with answers as cards; tests replace it. */
+    interface Question { int ask(Component parent, String title, Icon icon, String headline, String message, List<ChoiceDialog.Option> options); }
+    Question skidQuestion = ChoiceDialog::ask;
     private final JSplitPane vertical, inner, outer;
     private final JLabel message = new JLabel(" ");
     private final JLabel caret = Ui.muted("");
@@ -51,6 +54,7 @@ final class MainWindow extends JFrame {
     private final javax.swing.Timer memoryClock = new javax.swing.Timer(3000, e -> refreshMemory());
     private final StatusDot statusDot = new StatusDot();
     private JButton cancelButton;
+    private JComponent toolbar;
     private final ObfuscationBanner banner = new ObfuscationBanner(this);
     private final JProgressBar busy = new JProgressBar();
     private final List<Action> workspaceActions = new ArrayList<>(), resultActions = new ArrayList<>();
@@ -165,7 +169,8 @@ final class MainWindow extends JFrame {
 
         var root = new JPanel(new BorderLayout());
         var north = new JPanel(new BorderLayout());
-        north.add(toolbar(), BorderLayout.NORTH);
+        toolbar = toolbar();
+        north.add(toolbar, BorderLayout.NORTH);
         north.add(banner, BorderLayout.SOUTH);
         root.add(north, BorderLayout.NORTH);
         root.add(center, BorderLayout.CENTER);
@@ -318,10 +323,11 @@ final class MainWindow extends JFrame {
             reverse = false;
             if (detection != null && detection.skidfuscator() && workspace.reversedFrom() == null) {
                 var top = detection.top();
-                Object[] options = {Text.t("skid.reverseAndDecompile"), Text.t("skid.decompileOriginal"), Text.t("dialog.cancel")};
-                int answer = JOptionPane.showOptionDialog(this, "<html><body style='width:420px'>" + Ui.escape(Text.t("skid.question",
-                    Text.t("confidence." + top.confidence()), top.score())) + "</body></html>", Text.t("skid.title"), JOptionPane.DEFAULT_OPTION,
-                    JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                // Phase G9: the two answers as cards saying what each does; the reversal (recommended) comes first.
+                int answer = skidQuestion.ask(this, Text.t("skid.title"), Icons.of(Icons.Glyph.SHIELD, 28, Theme.ACCENT),
+                    Text.t("skid.headline"), Text.t("skid.message", Text.t("confidence." + top.confidence()), top.score()),
+                    List.of(new ChoiceDialog.Option(Text.t("skid.reverseAndDecompile"), Text.t("skid.reverse.note")),
+                        new ChoiceDialog.Option(Text.t("skid.decompileOriginal"), Text.t("skid.original.note"))));
                 if (answer != 0 && answer != 1) return;
                 reverse = answer == 0;
                 declinedReversal = answer == 1;
@@ -1009,6 +1015,8 @@ final class MainWindow extends JFrame {
     private static JButton iconOnly(Action action) {
         var button = Ui.toolButton(action);
         button.setHideActionText(true);
+        // Phase G9: a screen reader says the action's name, not nothing (the text is hidden, only the tooltip remains).
+        button.getAccessibleContext().setAccessibleName((String) action.getValue(Action.NAME));
         button.setMargin(new Insets(5, 6, 5, 6));
         return button;
     }
@@ -1255,6 +1263,8 @@ final class MainWindow extends JFrame {
     ObfuscationBanner banner() { return banner; }
     UsagesPanel usages() { return usages; }
     SearchPanel searchPanel() { return search; }
+    JComponent toolbarForTest() { return toolbar; }
+    WelcomePanel welcomeForTest() { return welcome; }
     void showActivityPanel() { showBottom(activity); }
     ExplorerPanel explorer() { return explorer; }
     boolean running() { return running != null; }

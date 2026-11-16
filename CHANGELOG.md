@@ -4,6 +4,10 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Reports
+
+- `report.html` uses the desktop application's level colors (*close* was green and *per-file* blue there; now blue and yellow, as in the desktop), its black and orange look in both light and dark color schemes, and opens with one sentence saying what the result means. Statuses and the selected candidate read as words ("Compiles", "Methods combined"), the legend gives each level's share, and buttons under it show only one level or the classes that need attention. The page still runs no script and loads nothing from the network: the filter is plain CSS.
+
 ### Desktop
 
 - A redesigned desktop with the same layout and identity. Both themes are built on one set of colors (the light theme gets its own warm palette and syntax colors), headings use semibold type, and selections, menus and popups are rounded.
@@ -16,6 +20,10 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 - Fixed: opening another input kept the previous decompile's stage times; "open at line" (search hits, javac errors) could land on line 1; centering the caret of a tab not yet on screen threw an exception; the inspector listed every level at zero for results without levels; the disabled main button looked brown.
 - Faster: the code font is looked up once instead of on every repaint of code lists, method evidence and javac errors are located off the event thread, very large files (over 1.5 million characters or 30,000 lines) open without code folding, and the Windows theme lookup no longer delays the window.
 - macOS: shortcuts use the Command key and the menu bar is the system one.
+- The Skidfuscator question and the obfuscation details are dialogs of cards saying what each answer does; "Which one?" (several members match a name) has a filter; the Usages panel explains how to start before the first search.
+- Accessibility: every toolbar button has a name a screen reader can say, painted cards and the Decompile button speak as buttons, and recent files and the overview's legend rows are reached with Tab and run with Enter.
+- Fixed: in a narrow editor the header cut the class name (showing only its package) and dropped the level chip; the class name now comes first and the chip stays.
+- `decompile` names a missing input (not found, a folder, a symbolic link) with its path before preparing anything; the exit code is unchanged.
 
 ### Detection
 

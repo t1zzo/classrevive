@@ -90,6 +90,20 @@ final class WelcomePanel extends JPanel {
     /** Lights the drop zone while a file is dragged over the window. */
     void dragging(boolean on) { drop.highlight(on); }
 
+    /** For tests: the recent rows, as the keyboard reaches them. */
+    java.util.List<JComponent> recentRows() {
+        var rows = new java.util.ArrayList<JComponent>();
+        collect(lower, rows);
+        return rows;
+    }
+
+    private static void collect(Container container, java.util.List<JComponent> rows) {
+        for (var child : container.getComponents()) {
+            if (child instanceof RecentRow row) rows.add(row);
+            else if (child instanceof Container inner) collect(inner, rows);
+        }
+    }
+
     /** Rebuilds the lower part from the settings: the recent files, or the three steps when there are none. */
     void refresh() {
         lower.removeAll();
@@ -197,17 +211,20 @@ final class WelcomePanel extends JPanel {
             };
             addMouseListener(mouse);
             for (var child : new Component[] {icon, name, where}) child.addMouseListener(mouse);
+            Ui.keyboardButton(this, Text.t("welcome.recentItem", Ui.visible(String.valueOf(path.getFileName())), path.toString()), () -> open.accept(path));
         }
 
         @Override public Dimension getMaximumSize() { return new Dimension(Integer.MAX_VALUE, getPreferredSize().height); }
 
         @Override protected void paintComponent(Graphics g) {
+            Ui.paintFocus(g, this, 10);
             if (!hover) return;
             var g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(Theme.hover());
             g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
             g2.dispose();
+            Ui.paintFocus(g, this, 10);
         }
     }
 

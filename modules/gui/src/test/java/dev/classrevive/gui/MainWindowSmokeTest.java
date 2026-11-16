@@ -26,6 +26,9 @@ class MainWindowSmokeTest {
             Path jar = Fixtures.jar(directory);
             var window = onEdt(() -> { Theme.install(GuiSettings.ThemeChoice.LIGHT); return new MainWindow(settings); });
             try {
+                // Phase G9: every toolbar button has a name a screen reader can say, icon-only ones included.
+                var unnamed = onEdt(() -> unnamedButtons(window.toolbarForTest()));
+                assertTrue(unnamed.isEmpty(), "toolbar buttons without an accessible name: " + unnamed);
                 SwingUtilities.invokeAndWait(() -> window.openPath(jar));
                 waitFor(() -> onEdt(() -> window.workspace() != null));
                 assertFalse(onEdt(() -> window.decompile.isEnabled() && window.searchCode.isEnabled()), "search needs a result");
@@ -85,6 +88,17 @@ class MainWindowSmokeTest {
         } finally {
             System.clearProperty("classrevive.home");
         }
+    }
+
+    /** Buttons (and the split button) under {@code root} whose accessible name is empty. */
+    private static java.util.List<String> unnamedButtons(java.awt.Component root) {
+        var found = new java.util.ArrayList<String>();
+        if (root instanceof javax.swing.AbstractButton || root instanceof Ui.SplitButton) {
+            String name = root.getAccessibleContext().getAccessibleName();
+            if (name == null || name.isBlank()) found.add(root.toString());
+        }
+        if (root instanceof java.awt.Container container) for (var child : container.getComponents()) found.addAll(unnamedButtons(child));
+        return found;
     }
 
     private static <T> T onEdt(Callable<T> call) throws Exception {

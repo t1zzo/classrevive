@@ -103,6 +103,8 @@ final class Ui {
             recolor();
         }
         void set(String text, Color color) { setText(text); this.color = color; recolor(); repaint(); }
+        /** A chip is never squeezed: a layout short of space shrinks its neighbors instead (Phase G9). */
+        @Override public Dimension getMinimumSize() { return getPreferredSize(); }
         private void recolor() { if (color != null) setForeground(soft ? readable(color) : Theme.textOn(color)); }
         @Override public void updateUI() {
             super.updateUI();
@@ -251,6 +253,19 @@ final class Ui {
         private boolean hover, selected;
         private Runnable click;
         Card(Color accent) { this.accent = accent; setOpaque(false); setBorder(padding(12, 14, 12, 14)); }
+
+        @Override public javax.accessibility.AccessibleContext getAccessibleContext() {
+            if (accessibleContext == null) accessibleContext = new AccessibleJPanel() {
+                @Override public javax.accessibility.AccessibleRole getAccessibleRole() {
+                    return click != null ? javax.accessibility.AccessibleRole.PUSH_BUTTON : super.getAccessibleRole();
+                }
+                @Override public String getAccessibleName() {
+                    String name = super.getAccessibleName();
+                    return name != null || click == null ? name : spokenText(Card.this);
+                }
+            };
+            return accessibleContext;
+        }
         @Override public Dimension getMaximumSize() { return new Dimension(Integer.MAX_VALUE, getPreferredSize().height); }
 
         /** Makes the whole card a button. */
@@ -509,6 +524,48 @@ final class Ui {
         return out.toString();
     }
 
+    /**
+     * Phase G9: makes a painted row or card a button for the keyboard (focusable, Enter or Space runs {@code run}) and for
+     * screen readers (role push button, the given name). The component paints its focus itself (see {@link #paintFocus}).
+     */
+    static void keyboardButton(JComponent component, String name, Runnable run) {
+        component.setFocusable(true);
+        component.getAccessibleContext().setAccessibleName(name);
+        component.addKeyListener(new KeyAdapter() {
+            @Override public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER || e.getKeyCode() == KeyEvent.VK_SPACE) { e.consume(); run.run(); }
+            }
+        });
+        component.addFocusListener(new FocusAdapter() {
+            @Override public void focusGained(FocusEvent e) { component.repaint(); }
+            @Override public void focusLost(FocusEvent e) { component.repaint(); }
+        });
+    }
+
+    /** Phase G9: the accent focus ring of a painted button, inset by one pixel. */
+    static void paintFocus(Graphics g, JComponent component, int arc) {
+        if (!component.isFocusOwner()) return;
+        var g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(Theme.ACCENT);
+        g2.setStroke(new BasicStroke(1.5f));
+        g2.drawRoundRect(1, 1, component.getWidth() - 3, component.getHeight() - 3, arc, arc);
+        g2.dispose();
+    }
+
+    /** Phase G9: the text a screen reader should say for a panel: its labels' texts, markup removed, in order. */
+    static String spokenText(Container container) {
+        var out = new StringBuilder();
+        for (var child : container.getComponents()) {
+            String text = child instanceof JLabel label ? label.getText() : child instanceof javax.swing.text.JTextComponent area ? area.getText()
+                : child instanceof Container inner && !(child instanceof AbstractButton) ? spokenText(inner) : null;
+            if (text == null || text.isBlank()) continue;
+            if (!out.isEmpty()) out.append(". ");
+            out.append(text.replaceAll("<[^>]*>", " ").replace("&nbsp;", " ").replaceAll("\\s+", " ").strip());
+        }
+        return out.toString();
+    }
+
     // ----- Phase G8: keycaps, the split button, the segmented control, motion -------------------------------------------
 
     /** A shortcut drawn as key caps: "Ctrl+Shift+F" becomes three small rounded keys. */
@@ -586,6 +643,15 @@ final class Ui {
         }
 
         private int part(MouseEvent e) { return e.getX() >= getWidth() - ARROW ? 1 : 0; }
+
+        @Override public javax.accessibility.AccessibleContext getAccessibleContext() {
+            if (accessibleContext == null) accessibleContext = new AccessibleJComponent() {
+                @Override public javax.accessibility.AccessibleRole getAccessibleRole() { return javax.accessibility.AccessibleRole.PUSH_BUTTON; }
+                @Override public String getAccessibleName() { return (String) main.getValue(Action.NAME); }
+                @Override public String getAccessibleDescription() { return (String) main.getValue(Action.SHORT_DESCRIPTION); }
+            };
+            return accessibleContext;
+        }
 
         @Override public void updateUI() {
             super.updateUI();

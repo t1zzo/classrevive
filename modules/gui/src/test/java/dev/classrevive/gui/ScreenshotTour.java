@@ -20,6 +20,9 @@ class ScreenshotTour {
     @TempDir Path directory;
 
     @Test void tour() throws Exception {
+        // Phase G9: a review at another scale lays the window out as a HiDPI display would (Java2D's own scale, set before
+        // any window exists), so text is measured and painted at the same scale.
+        if (SCALE != 1 && System.getProperty("sun.java2d.uiScale") == null) System.setProperty("sun.java2d.uiScale", String.valueOf(SCALE));
         String target = System.getProperty("classrevive.screenshots");
         assumeTrue(target != null && !GraphicsEnvironment.isHeadless(), "screenshots not requested");
         Path out = Files.createDirectories(Path.of(target));
@@ -89,6 +92,14 @@ class ScreenshotTour {
                     waitFor(() -> onEdt(() -> window.workspace() != null && window.workspace().input().equals(Path.of(skid))));
                     settle();
                     shot(window, out.resolve("13-skidfuscator-" + suffix + ".png"));
+                    // Phase G9: the evidence dialog and the question a plain decompile asks.
+                    dialog(onEdt(() -> window.banner().detailsDialog()), out.resolve("13b-obfuscation-details-" + suffix + ".png"));
+                    var top = onEdt(() -> window.workspace().obfuscation().top());
+                    dialog(onEdt(() -> ChoiceDialog.forTour(window, Text.t("skid.title"), Icons.of(Icons.Glyph.SHIELD, 28, Theme.ACCENT), Text.t("skid.headline"),
+                        Text.t("skid.message", Text.t("confidence." + top.confidence()), top.score()),
+                        java.util.List.of(new ChoiceDialog.Option(Text.t("skid.reverseAndDecompile"), Text.t("skid.reverse.note")),
+                            new ChoiceDialog.Option(Text.t("skid.decompileOriginal"), Text.t("skid.original.note"))))),
+                        out.resolve("13c-skidfuscator-question-" + suffix + ".png"));
                     SwingUtilities.invokeAndWait(() -> window.decompile(false, true));
                     waitFor(() -> onEdt(() -> !window.running() && window.workspace().reversedFrom() != null));
                     settle();
@@ -139,8 +150,9 @@ class ScreenshotTour {
             root.setSize(root.getPreferredSize());
             root.doLayout();
             layout(root);
-            var picture = new BufferedImage(root.getWidth(), root.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            var picture = new BufferedImage((int) (root.getWidth() * SCALE), (int) (root.getHeight() * SCALE), BufferedImage.TYPE_INT_ARGB);
             var g = picture.createGraphics();
+            g.scale(SCALE, SCALE);
             root.paint(g);
             g.dispose();
             return picture;
@@ -158,14 +170,18 @@ class ScreenshotTour {
         var image = onEdt(() -> {
             var root = window.getRootPane();
             window.validate();
-            var picture = new BufferedImage(root.getWidth(), root.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            var picture = new BufferedImage((int) (root.getWidth() * SCALE), (int) (root.getHeight() * SCALE), BufferedImage.TYPE_INT_ARGB);
             var g = picture.createGraphics();
+            g.scale(SCALE, SCALE);
             root.paint(g);
             g.dispose();
             return picture;
         });
         ImageIO.write(image, "png", file.toFile());
     }
+
+    /** Phase G9: paint scale of every shot ({@code -Pclassrevive.screenshots.scale}, default 1), for a HiDPI review. */
+    private static final double SCALE = Double.parseDouble(System.getProperty("classrevive.screenshots.scale", "1"));
 
     private static void settle() throws Exception {
         for (int i = 0; i < 8; i++) { Thread.sleep(150); SwingUtilities.invokeAndWait(() -> { }); }

@@ -198,6 +198,14 @@ class MainTest {
         assertTrue(errors.toString().contains("INVALID_INPUT"));
         assertFalse(errors.toString().contains("Exception"));
     }
+    /** Phase G9: decompile names a missing input and stops before "Preparing input", with the same exit code (1). */
+    @Test void decompileNamesAMissingInputBeforePreparingIt() {
+        Path missing = directory.resolve("missing.jar");
+        assertEquals(1, run("decompile", missing.toString(), "--output", directory.resolve("out").toString()));
+        assertTrue(errors.toString().contains("input not found: " + missing.toAbsolutePath().normalize()), errors.toString());
+        assertFalse(output.toString().contains("Preparing input"), output.toString());
+        assertFalse(Files.exists(directory.resolve("out")));
+    }
     @Test void inventoriesPackagedClass() throws Exception {
         var path = directory.resolve("fixture.class");
         try (var in = MainTest.class.getResourceAsStream("/dev/classrevive/cli/MainTest.class")) {

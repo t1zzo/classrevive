@@ -12,4 +12,6 @@ dependencies {
 // properties reach the test JVM as system properties.
 tasks.test {
     providers.gradlePropertiesPrefixedBy("classrevive.screenshots").get().forEach { (key, value) -> systemProperty(key, value) }
+    // The opt-in PerformanceProbe reads -Pclassrevive.perf=<a jar> (and classrevive.perf.out) the same way.
+    providers.gradlePropertiesPrefixedBy("classrevive.perf").get().forEach { (key, value) -> systemProperty(key, value) }
 }

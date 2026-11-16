@@ -104,23 +104,33 @@ final class CodeTab extends JPanel {
             @Override public void updateUI() { super.updateUI(); setBackground(Theme.panel()); }
         };
         header.setBorder(BorderFactory.createCompoundBorder(Ui.bottomLine(), Ui.padding(5, 12, 5, 8)));
-        var name = new JLabel();
+        // An HTML label reports no maximum size: in the header's row it would stretch and be squeezed in height.
+        var name = new JLabel() {
+            @Override public Dimension getMaximumSize() { return getPreferredSize(); }
+            @Override public Dimension getMinimumSize() { return new Dimension(Math.min(40, getPreferredSize().width), getPreferredSize().height); }
+        };
         if (item != null) {
             char kind = ExplorerPanel.kind(item);
             name.setIcon(Icons.kind(kind, ExplorerPanel.kindColor(kind), null));
             String pkg = item.packageName();
-            name.setText("<html>" + (pkg.isEmpty() ? "" : "<span style='color:" + hex(Theme.secondary()) + "'>" + Ui.escape(pkg) + ".</span>")
-                + "<b>" + Ui.escape(item.simpleName()) + "</b></html>");
+            // Phase G9: the class name first and its package after it, so a narrow editor cuts the package, never the name.
+            name.setText("<html><b>" + Ui.escape(item.simpleName()) + "</b>" + (pkg.isEmpty() ? "" : "&nbsp; <span style='color:"
+                + hex(Theme.secondary()) + "'>" + Ui.escape(pkg) + "</span>") + "</html>");
             name.setToolTipText(Ui.visible(item.name().replace('/', '.')));
         } else {
             name.setIcon(Icons.of(Icons.Glyph.RESOURCE, 14));
             name.setText(Ui.visible(resource.entry()));
         }
         name.setIconTextGap(8);
-        var left = new JPanel(new FlowLayout(FlowLayout.LEFT, Ui.GAP, 4));
+        // The level chip stays next to the name; when space runs out the name is cut, not the chip (Phase G9).
+        var left = new JPanel();
+        left.setLayout(new BoxLayout(left, BoxLayout.X_AXIS));
         left.setOpaque(false);
+        left.setBorder(Ui.padding(4, 0, 4, 0));
         left.add(name);
+        left.add(Box.createHorizontalStrut(Ui.GAP));
         left.add(level);
+        left.add(Box.createHorizontalGlue());
         header.add(left, BorderLayout.CENTER);
         header.add(views, BorderLayout.EAST);
         // The strip under the header: what a bytecode-only view is, or why a large file has no folding.
@@ -681,6 +691,11 @@ final class CodeTab extends JPanel {
             var close = new JButton(Icons.of(Icons.Glyph.CLOSE, 13));
             for (var button : List.of(previous, next, close)) button.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
             previous.setToolTipText(Text.t("find.previous")); next.setToolTipText(Text.t("find.next")); close.setToolTipText(Text.t("find.close"));
+            // Phase G9: screen readers say what the icon buttons do.
+            previous.getAccessibleContext().setAccessibleName(Text.t("find.previous"));
+            next.getAccessibleContext().setAccessibleName(Text.t("find.next"));
+            close.getAccessibleContext().setAccessibleName(Text.t("find.close"));
+            field.getAccessibleContext().setAccessibleName(Text.t("find.placeholder"));
             add(field); add(matchCase); add(previous); add(next); add(count); add(close);
             previous.addActionListener(e -> step(false));
             next.addActionListener(e -> step(true));

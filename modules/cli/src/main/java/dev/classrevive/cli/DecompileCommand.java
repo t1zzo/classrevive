@@ -81,6 +81,8 @@ final class DecompileCommand {
             var nativeOptions = new NativeOptions[1];
             var options = JobOptions.parse(NativeOptions.strip(args, nativeOptions), "cfr,vineflower");
             Path output = options.output();
+            String unreadable = missingInput(options.input());
+            if (unreadable != null) { err.println("Decompilation failed: " + Main.safe(unreadable)); return 1; }
             if (IdentifyCommand.needsIdentification(options.input()))
                 out.println("Input is not named .class or .jar: identifying it from its bytes (nothing is run).");
             out.println("Preparing input; selected engines run in separate JVMs (2 to 4 concurrently, by processor count).");
@@ -124,6 +126,18 @@ final class DecompileCommand {
             err.println("Decompilation interrupted.");
             return 130;
         }
+    }
+
+    /**
+     * Phase G9: why {@code input} cannot be read, in words that name it (not found, a folder, a link), or null when it is a
+     * regular file. The job checks the same, later and in general terms.
+     */
+    static String missingInput(Path input) {
+        Path absolute = input.toAbsolutePath().normalize();
+        if (java.nio.file.Files.isSymbolicLink(absolute)) return "the input is a symbolic link; pass the file it points to: " + absolute;
+        if (java.nio.file.Files.isDirectory(absolute)) return "the input is a folder, not a file: " + absolute;
+        if (!java.nio.file.Files.exists(absolute)) return "input not found: " + absolute;
+        return null;
     }
 
     /**

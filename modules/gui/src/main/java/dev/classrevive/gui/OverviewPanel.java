@@ -339,15 +339,18 @@ final class OverviewPanel extends JPanel {
                 };
                 addMouseListener(mouse);
                 for (var child : getComponents()) child.addMouseListener(mouse);
+                Ui.keyboardButton(this, Text.t("overview.showLevel", Text.t("level." + level.name())) + " (" + count + ")", () -> showLevel.accept(level));
             } else number.putClientProperty(FlatClientProperties.STYLE, "foreground: $ClassRevive.mutedForeground");
         }
         @Override protected void paintComponent(Graphics g) {
-            if (!hover) return;
-            var g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(Theme.hover());
-            g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
-            g2.dispose();
+            if (hover) {
+                var g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(Theme.hover());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.dispose();
+            }
+            Ui.paintFocus(g, this, 8);
         }
     }
 
