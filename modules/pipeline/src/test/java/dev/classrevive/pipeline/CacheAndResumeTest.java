@@ -73,6 +73,78 @@ class CacheAndResumeTest {
             "a finished run has nothing to resume");
     }
 
+    /** A fake engine (a single-file Java program; no target class is run) that counts its runs in {@code runs.txt}. */
+    private DecompilerEngine scripted(String id, String body) throws Exception {
+        Path program = dir.resolve(id + "-engine/Engine.java");
+        Files.createDirectories(program.getParent());
+        Files.writeString(program, """
+            import java.nio.file.*;
+            public class Engine {
+                public static void main(String[] args) throws Exception {
+                    Path out = Path.of(args[1]);
+                    Files.writeString(Path.of(args[2]), "run\\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    %s
+                }
+            }
+            """.formatted(body));
+        Path runs = dir.resolve(id + "-runs.txt");
+        return new DecompilerEngine() {
+            @Override public String id() { return id; }
+            @Override public String version() { return "1"; }
+            @Override public List<String> command(Path in, Path out) {
+                return List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(), program.toString(), in.toString(), out.toString(),
+                    runs.toString());
+            }
+        };
+    }
+
+    @Test void reusesARunTheEngineEndedWithANonzeroExit() throws Exception {
+        // Phase 2DX: JADX exits 1 on most real jars; such a run is the engine's own answer and is kept with its log.
+        var input = compile("Calc", "public class Calc { public int twice(int x) { return x * 2; } }");
+        var engine = scripted("partial", """
+                    Files.writeString(out.resolve("Calc.java"), "public class Calc { public int twice(int x) { return x * 2; } }");
+                    System.out.println("Failed class Other: IllegalArgumentException");
+                    System.exit(3);""");
+        var cache = dir.resolve("failure-cache");
+        var first = new DecompilationJob().withEngineCache(cache).runVerified(input, dir.resolve("partial-first"), List.of(engine), Duration.ofSeconds(60));
+        var ran = first.engines().getFirst();
+        assertEquals(dev.classrevive.engine.EngineResult.Status.FAILED, ran.status(), ran.toString());
+        assertEquals(3, ran.exitCode());
+        var second = new DecompilationJob().withEngineCache(cache).runVerified(input, dir.resolve("partial-second"), List.of(engine), Duration.ofSeconds(60));
+        var reused = second.engines().getFirst();
+        assertTrue(reused.message().startsWith("Reused from the engine cache") && reused.message().contains("exited with code 3"), reused.toString());
+        assertEquals(dev.classrevive.engine.EngineResult.Status.FAILED, reused.status());
+        assertEquals(3, reused.exitCode());
+        assertEquals(dev.classrevive.engine.EngineResult.DiagnosticCode.ENGINE_EXIT_NONZERO, reused.diagnosticCode());
+        assertEquals(1, reused.sourceFiles());
+        String log = Files.readString(dir.resolve("partial-second/partial/engine.log"));
+        assertTrue(log.startsWith("Reused from the engine cache, key ") && log.contains("Failed class Other: IllegalArgumentException"), log);
+        assertEquals(Files.readString(dir.resolve("partial-first/partial/sources/Calc.java")),
+            Files.readString(dir.resolve("partial-second/partial/sources/Calc.java")));
+        assertEquals(1, Files.readAllLines(dir.resolve("partial-runs.txt")).size(), "the engine ran once");
+        assertEquals(first.selection().verification().status(), second.selection().verification().status());
+    }
+
+    @Test void timeoutsAndOtherMachineDependentEndingsAreNotCached() throws Exception {
+        var input = compile("Slow", "public class Slow { public int one() { return 1; } }");
+        var engine = scripted("slow", "Thread.sleep(20_000);");
+        var cache = new EngineCache(dir.resolve("timeout-cache"));
+        var first = cache.run(engine, input, dir.resolve("slow-first"), Duration.ofSeconds(2));
+        assertEquals(dev.classrevive.engine.EngineResult.Status.TIMED_OUT, first.status());
+        var second = cache.run(engine, input, dir.resolve("slow-second"), Duration.ofSeconds(2));
+        assertEquals(dev.classrevive.engine.EngineResult.Status.TIMED_OUT, second.status());
+        assertFalse(second.message().startsWith("Reused"), second.toString());
+        try (var entries = Files.list(dir.resolve("timeout-cache"))) { assertEquals(0, entries.filter(Files::isDirectory).count()); }
+        for (var status : List.of(dev.classrevive.engine.EngineResult.Status.TIMED_OUT, dev.classrevive.engine.EngineResult.Status.OUTPUT_LIMIT,
+                dev.classrevive.engine.EngineResult.Status.CANCELLED, dev.classrevive.engine.EngineResult.Status.NO_SOURCES))
+            assertFalse(EngineCache.cacheable(new dev.classrevive.engine.EngineResult("e", "1", status, 0, 0, 0, "")), status.name());
+        assertFalse(EngineCache.cacheable(new dev.classrevive.engine.EngineResult("e", "1", dev.classrevive.engine.EngineResult.Status.FAILED, -1, 0, 0, "",
+            dev.classrevive.engine.EngineResult.DiagnosticCode.WORKER_START_FAILED)), "a worker that could not start");
+        assertTrue(EngineCache.cacheable(new dev.classrevive.engine.EngineResult("e", "1", dev.classrevive.engine.EngineResult.Status.FAILED, 1, 5, 0, "",
+            dev.classrevive.engine.EngineResult.DiagnosticCode.ENGINE_EXIT_NONZERO)));
+        assertTrue(EngineCache.cacheable(new dev.classrevive.engine.EngineResult("e", "1", dev.classrevive.engine.EngineResult.Status.OUTPUT_PRODUCED, 0, 5, 0, "")));
+    }
+
     @Test void engineJarBytesArePartOfTheCacheKey() throws Exception {
         var jar = dir.resolve("engine.jar");
         Files.write(jar, new byte[]{1, 2, 3});
