@@ -2,12 +2,28 @@
 
 All notable changes to ClassRevive are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Before 1.0.0, minor versions may change command options and report fields; report schema changes stay additive within `schema_version` 1.
 
-## [Unreleased]
+## [0.4.0] - 2026-11-20
 
-### Reports
+### Engines and selection
 
-- `report.html` uses the desktop application's level colors (*close* was green and *per-file* blue there; now blue and yellow, as in the desktop), its black and orange look in both light and dark color schemes, and opens with one sentence saying what the result means. Statuses and the selected candidate read as words ("Compiles", "Methods combined"), the legend gives each level's share, and buttons under it show only one level or the classes that need attention. The page still runs no script and loads nothing from the network: the filter is plain CSS.
-- The dependency jar copies that every compile stage makes in its `*-dependencies/` folder are removed once the job is done. Each stage reads them only while it compiles, and on a large obfuscated jar with a dozen dependencies they were about four fifths of the output (1706 MB down to 346 MB, identical results). `dependencies.txt`, with every jar's SHA-256 and class count, stays in each folder; `report.txt` and `report.json` (`dependency_copies_removed`) record what was removed. A job that fails before its reports keeps its copies.
+- JD-Core can be added as an optional fifth engine, from a jar you supply through `CLASSREVIVE_JDCORE_JAR` (GPL-3.0: never bundled, downloaded or compiled against; it runs by reflection in its own JVM) and named with `--engines ...,jd-core`. With other engines, the job selects with and without it and keeps the result with it only when it is no worse on every measure (complete, compiled, signatures, classes compiling on their own, bodies) and better on one; the decision is in `guard/guard.txt`, `selection.txt` and `report.txt`, and the other run stays in `guard/`. The worker writes one file per class JD-Core prints on its own (read from `InnerClasses` with JD-Core's rule), gives each class 30 s, escapes half surrogate pairs, and leaves out the nameless `MethodParameters` entries javac 21 writes, which JD-Core 1.1.3 fails on. `classrevive engines` shows its status. See `docs/jd-core.md`.
+- The engine cache (`--engine-cache`) also keeps runs the engine itself ended with a nonzero exit code, with the sources they wrote and their `engine.log`: JADX exits 1 on most real jars and Procyon on some, and those runs repeated in every variant of every benchmark. A reused failure keeps its status (`FAILED`), exit code and log. Timeouts, output-budget refusals, cancellations and workers that could not start still run again.
+- Inferred stand-ins for missing libraries never give a type a supertype that reaches one of its own member types. Converted Android code could lead there (`Drawable` placed below `AdaptiveIconDrawable`, which implements `Drawable.Callback`), and javac's "cyclic inheritance" then stopped every file naming the type, so the per-file round trip of a large APK compiled nothing.
+- Hybrid selection no longer keeps a replacement that fixes its own file but breaks the files that use it (a decompiler declaring a `throws` clause the bytecode does not, so every caller fails): when both mixes parse, the errors that grew in other files are charged to the replacements whose class they name (by simple name in the same package, by qualified name from another), and a replacement whose charge outweighs what it fixed is reverted. javac now reports up to 100,000 errors per compilation instead of 1,000, so per-file counts on large inputs are no longer cut short; the compiler log still prints the first 1,000.
+
+### Deobfuscation
+
+- BlackObfuscator (Android dex control-flow flattening): `decompile` applies the control-flow pass on a HIGH diagnosis. Its dispatchers, `switch (s.hashCode() ^ k)` on a state string kept in locals, are now threaded: a constant string's `hashCode()` and `length()` count as side-effect free, and a store inside a dispatcher is skipped when only the dispatcher reads that local and nothing jumps into its middle.
+- Zelix KlassMaster 27 for Java 7 and later targets: the `zkm` pass now also reverses the `invokedynamic` shape, and `decompile` applies it when the diagnosis names `Zelix KlassMaster` with HIGH confidence. Each class's key comes from the obfuscator's own key generator, interpreted statically by a new bounded interpreter (`ZkmRuntime`: objects of jar classes, modelled JDK collections, DES on constants, super classes initialized first as the JVM does). String and number sites become their values, and the bootstraps, resolvers, decryptors and decrypting initializers go. A class whose key fails DES's padding check anywhere is left as it is. Classes whose initializer is native code keep their sites. See `docs/zelix-klassmaster.md`.
+- Exception obfuscation: `catch (RuntimeException e) { throw a(e); }` through a helper returning its argument loses the helper, then the handler that only rethrows (also in javac's `astore; aload; athrow` shape).
+- `decompile`'s own reversal accepts archives whose class names differ only in letter case; they are made portable right after it, as before.
+
+### Detection
+
+- New rules for native-obfuscator (radioegor146) and its forks such as native-obfuscator-plus, j2cc, BytecodeVM and the alpheratz obfuscator, from shapes that survive their configurable names: native-obfuscator's `registerNativesForClass(int, Class)` loader and registering initializers; j2cc's `bootstrap`/`initClass`/`doInit` loader, `j2cc/natives.bin` resources and `j2$mh` method-handle calls; BytecodeVM's `execute(code id, receiver, Object[] args)` stubs and `$CodePool`; alpheratz's table-keyed numbers and booleans, goto traps, trash predicates and trash `throws`. The generic native-layer hypothesis is no longer reported beside a recognized transpiler. See `docs/obfuscation-detection.md`.
+- Branchlock 4 (loerting/branchlock_obf): its watermark and demo markers, leftover annotations, its hash-keyed reference lookup class, its per-class string tables decrypted in `<clinit>` with a stack-trace check, and its crasher classes.
+- BlackObfuscator (CodingGay/BlackObfuscator): methods flattened behind `switch (state.hashCode() ^ k)` dispatchers.
+- Ambien (iiiiiiiris/Ambien): its archive comment, red herring class, string decryptor, reference hider and crashers. The detector now also reads the archive comment and directory entries (a class hidden as `X.class/`).
 
 ### Desktop
 
@@ -26,30 +42,23 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 - Fixed: in a narrow editor the header cut the class name (showing only its package) and dropped the level chip; the class name now comes first and the chip stays.
 - `decompile` names a missing input (not found, a folder, a symbolic link) with its path before preparing anything; the exit code is unchanged.
 
-### Detection
+### Reports
 
-- New rules for native-obfuscator (radioegor146) and its forks such as native-obfuscator-plus, j2cc, BytecodeVM and the alpheratz obfuscator, from shapes that survive their configurable names: native-obfuscator's `registerNativesForClass(int, Class)` loader and registering initializers; j2cc's `bootstrap`/`initClass`/`doInit` loader, `j2cc/natives.bin` resources and `j2$mh` method-handle calls; BytecodeVM's `execute(code id, receiver, Object[] args)` stubs and `$CodePool`; alpheratz's table-keyed numbers and booleans, goto traps, trash predicates and trash `throws`. The generic native-layer hypothesis is no longer reported beside a recognized transpiler. See `docs/obfuscation-detection.md`.
-- Branchlock 4 (loerting/branchlock_obf): its watermark and demo markers, leftover annotations, its hash-keyed reference lookup class, its per-class string tables decrypted in `<clinit>` with a stack-trace check, and its crasher classes.
-- BlackObfuscator (CodingGay/BlackObfuscator): methods flattened behind `switch (state.hashCode() ^ k)` dispatchers.
-- Ambien (iiiiiiiris/Ambien): its archive comment, red herring class, string decryptor, reference hider and crashers. The detector now also reads the archive comment and directory entries (a class hidden as `X.class/`).
-
-### Deobfuscation
-
-- BlackObfuscator (Android dex control-flow flattening): `decompile` applies the control-flow pass on a HIGH diagnosis. Its dispatchers, `switch (s.hashCode() ^ k)` on a state string kept in locals, are now threaded: a constant string's `hashCode()` and `length()` count as side-effect free, and a store inside a dispatcher is skipped when only the dispatcher reads that local and nothing jumps into its middle.
-- Zelix KlassMaster 27 for Java 7 and later targets: the `zkm` pass now also reverses the `invokedynamic` shape, and `decompile` applies it when the diagnosis names `Zelix KlassMaster` with HIGH confidence. Each class's key comes from the obfuscator's own key generator, interpreted statically by a new bounded interpreter (`ZkmRuntime`: objects of jar classes, modelled JDK collections, DES on constants, super classes initialized first as the JVM does). String and number sites become their values, and the bootstraps, resolvers, decryptors and decrypting initializers go. A class whose key fails DES's padding check anywhere is left as it is. Classes whose initializer is native code keep their sites. See `docs/zelix-klassmaster.md`.
-- Exception obfuscation: `catch (RuntimeException e) { throw a(e); }` through a helper returning its argument loses the helper, then the handler that only rethrows (also in javac's `astore; aload; athrow` shape).
-- `decompile`'s own reversal accepts archives whose class names differ only in letter case; they are made portable right after it, as before.
-
-### Engines and selection
-
-- JD-Core can be added as an optional fifth engine, from a jar you supply through `CLASSREVIVE_JDCORE_JAR` (GPL-3.0: never bundled, downloaded or compiled against; it runs by reflection in its own JVM) and named with `--engines ...,jd-core`. With other engines, the job selects with and without it and keeps the result with it only when it is no worse on every measure (complete, compiled, signatures, classes compiling on their own, bodies) and better on one; the decision is in `guard/guard.txt`, `selection.txt` and `report.txt`, and the other run stays in `guard/`. The worker writes one file per class JD-Core prints on its own (read from `InnerClasses` with JD-Core's rule), gives each class 30 s, escapes half surrogate pairs, and leaves out the nameless `MethodParameters` entries javac 21 writes, which JD-Core 1.1.3 fails on. `classrevive engines` shows its status. See `docs/jd-core.md`.
-- The engine cache (`--engine-cache`) also keeps runs the engine itself ended with a nonzero exit code, with the sources they wrote and their `engine.log`: JADX exits 1 on most real jars and Procyon on some, and those runs repeated in every variant of every benchmark. A reused failure keeps its status (`FAILED`), exit code and log. Timeouts, output-budget refusals, cancellations and workers that could not start still run again.
-- Inferred stand-ins for missing libraries never give a type a supertype that reaches one of its own member types. Converted Android code could lead there (`Drawable` placed below `AdaptiveIconDrawable`, which implements `Drawable.Callback`), and javac's "cyclic inheritance" then stopped every file naming the type, so the per-file round trip of a large APK compiled nothing.
-- Hybrid selection no longer keeps a replacement that fixes its own file but breaks the files that use it (a decompiler declaring a `throws` clause the bytecode does not, so every caller fails): when both mixes parse, the errors that grew in other files are charged to the replacements whose class they name (by simple name in the same package, by qualified name from another), and a replacement whose charge outweighs what it fixed is reverted. javac now reports up to 100,000 errors per compilation instead of 1,000, so per-file counts on large inputs are no longer cut short; the compiler log still prints the first 1,000.
+- `report.html` uses the desktop application's level colors (*close* was green and *per-file* blue there; now blue and yellow, as in the desktop), its black and orange look in both light and dark color schemes, and opens with one sentence saying what the result means. Statuses and the selected candidate read as words ("Compiles", "Methods combined"), the legend gives each level's share, and buttons under it show only one level or the classes that need attention. The page still runs no script and loads nothing from the network: the filter is plain CSS.
+- The dependency jar copies that every compile stage makes in its `*-dependencies/` folder are removed once the job is done. Each stage reads them only while it compiles, and on a large obfuscated jar with a dozen dependencies they were about four fifths of the output (1706 MB down to 346 MB, identical results). `dependencies.txt`, with every jar's SHA-256 and class count, stays in each folder; `report.txt` and `report.json` (`dependency_copies_removed`) record what was removed. A job that fails before its reports keeps its copies.
 
 ### Benchmark
 
 - `benchmark --variants combined` runs only the combined selection of each sample, without one row per engine. A change to the selection leaves the single-engine rows as they were, and they took a third to a half of a run's time in our measurements. It needs at least two engines; `benchmark.json` records `variants_run` and lists `single_engine_variants` as not measured, and a run in one mode never resumes the other. The default, `all`, is unchanged.
+
+### Documentation
+
+- The README in Spanish, Italian and French, full translations of the English one, and an updated Portuguese README; every README links the others.
+- `docs/jd-core.md`: installing the optional JD-Core engine, its license, and the never-worse guard.
+
+### Build
+
+- The GitHub Actions used by CI were updated to their current versions.
 
 ## [0.3.0] - 2026-11-11
 
