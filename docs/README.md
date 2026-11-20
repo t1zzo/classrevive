@@ -11,6 +11,7 @@ The root [README](../README.md) gives an overview and a quick start. [ARCHITECTU
 - [Benchmarks](benchmarks.md): the scoreboard, how to run it and the latest numbers
 - [Report format](reports.md): `report.json`, `benchmark.json` and the failure-lab files
 - [Static obfuscation detection](obfuscation-detection.md): techniques, rules, scores and thresholds
+- [JD-Core as an optional fifth engine](jd-core.md): install, license, and the never-worse guard
 - [Static dynamic-linkage diagnostics](dynamic-diagnostics.md)
 
 ## Policies

@@ -37,7 +37,8 @@ public final class BenchmarkRunner {
         // Phase 2DI: links above the corpus and the output are followed once (SafePaths); the samples below are still walked.
         corpus = SafePaths.resolveParents(corpus); output = SafePaths.resolveParents(output);
         engines = List.copyOf(engines);
-        if (engines.isEmpty() || engines.size() > 4) throw new IllegalArgumentException("Select one to four engines");
+        // Phase 2DO: five with the optional JD-Core; worker concurrency stays capped (WorkerConcurrency), so memory does not grow.
+        if (engines.isEmpty() || engines.size() > 5) throw new IllegalArgumentException("Select one to five engines");
         var ids = new HashSet<String>();
         for (var engine : engines) if (!engine.id().matches("[a-z][a-z0-9-]{0,31}") || engine.id().equals("combined") || !ids.add(engine.id()))
             throw new IllegalArgumentException("Invalid or duplicate benchmark engine id");

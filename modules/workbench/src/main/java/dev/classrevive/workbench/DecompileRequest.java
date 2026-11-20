@@ -41,7 +41,8 @@ public record DecompileRequest(Path input, Path output, List<DecompilerEngine> e
         Objects.requireNonNull(input, "input");
         Objects.requireNonNull(output, "output");
         engines = List.copyOf(engines);
-        if (engines.isEmpty() || engines.size() > 4) throw new IllegalArgumentException("Select one to four engines");
+        // Phase 2DO: five with the optional JD-Core; worker concurrency stays capped (WorkerConcurrency), so memory does not grow.
+        if (engines.isEmpty() || engines.size() > 5) throw new IllegalArgumentException("Select one to five engines");
         timeout = RequestLimits.timeout(timeout);
         dependencies = RequestLimits.dependencies(dependencies);
         if (entry != null && entry.isBlank()) throw new IllegalArgumentException("Empty --entry name");
