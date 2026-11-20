@@ -37,7 +37,8 @@ final class Help {
               --entry <name>              For a bundle of jars (a zip of jars, alone or inside an .exe): the nested jar
                                           to decompile. Default: the one with the most classes that is not a library;
                                           the bundle's other jars are added to --classpath automatically.
-              --engine-cache <folder>     Reuse engine outputs keyed by input and engine bytes.
+              --engine-cache <folder>     Reuse engine outputs keyed by input and engine bytes, including runs the
+                                          engine ended with an error; timeouts always run again.
               --deobfuscate auto|off      Undo a recognized obfuscator (Skidfuscator, Aidsfuscator, Radon, Zelix KlassMaster 27) before decompiling,
                                           when the diagnosis is HIGH confidence. Default: auto.
               --infer-names off|high|medium|low

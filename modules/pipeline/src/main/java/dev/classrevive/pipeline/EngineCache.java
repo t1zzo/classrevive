@@ -16,9 +16,13 @@ import java.util.*;
  * itself, so the key is the SHA-256 of the normalized class JAR plus a fingerprint of the engine's worker command:
  * every argument except the input and output paths, the bytes of every class-path entry it runs (the adapter and
  * the engine library, also when passed as {@code -jar}) and the JVM version. A changed engine, adapter, heap, flag or
- * JDK gives a new key. Only an {@code OUTPUT_PRODUCED} run with exit code 0 is stored; failures, timeouts and budget
- * refusals always run again. A reused result says so in its message, and its elapsed time is the copy's, not a
- * decompilation's. Entries are written to a temporary folder and moved into place, so a half-written entry is never read.
+ * JDK gives a new key. An {@code OUTPUT_PRODUCED} run with exit code 0 is stored, and since Phase 2DX so is a run the
+ * engine itself ended with a nonzero exit code ({@code FAILED}, {@code ENGINE_EXIT_NONZERO}), with the sources it wrote
+ * and its {@code engine.log}: JADX exits 1 on most real jars and Procyon on some, and those runs repeated in
+ * every variant of every benchmark. Timeouts, budget refusals, cancellations and worker start or setup failures depend
+ * on the machine or the moment and always run again. A run whose engine applies its own time limit inside the run is
+ * stored like any other; deleting the cache folder runs everything again. A reused result says so in its
+ * message, keeps the stored status and exit code, and its elapsed time is the copy's, not a decompilation's. Entries are written to a temporary folder and moved into place, so a half-written entry is never read.
  * A corrupt entry is deleted and the engine runs; the cache is an optimization and never fails a job.
  */
 final class EngineCache {
@@ -38,13 +42,25 @@ final class EngineCache {
             try {
                 var values = new Properties();
                 try (var in = Files.newInputStream(properties)) { values.load(in); }
+                // Entries before Phase 2DX hold successes only and name no status.
+                var status = EngineResult.Status.valueOf(values.getProperty("status", "OUTPUT_PRODUCED"));
+                int exit = Integer.parseInt(values.getProperty("exit-code", "0"));
+                if (!(status == EngineResult.Status.OUTPUT_PRODUCED && exit == 0) && !(status == EngineResult.Status.FAILED && exit != 0))
+                    throw new IOException("Unexpected cached result");
                 Files.createDirectory(engineOutput);
                 outputCreated = true;
                 long files = copySources(entry.resolve("sources"), Files.createDirectory(engineOutput.resolve("sources")));
-                Files.writeString(engineOutput.resolve("engine.log"), "Reused from the engine cache, key " + key + "\n", StandardCharsets.UTF_8);
-                return new EngineResult(engine.id(), engine.version(), EngineResult.Status.OUTPUT_PRODUCED, 0, files,
-                    (System.nanoTime() - start) / 1_000_000, "Reused from the engine cache (first run " + values.getProperty("elapsed-ms", "?")
-                        + " ms); correctness not verified");
+                Path log = engineOutput.resolve("engine.log");
+                Files.writeString(log, "Reused from the engine cache, key " + key + "\n", StandardCharsets.UTF_8);
+                Path cachedLog = entry.resolve("engine.log");
+                if (Files.isRegularFile(cachedLog, LinkOption.NOFOLLOW_LINKS)) Files.write(log, Files.readAllBytes(cachedLog), StandardOpenOption.APPEND);
+                long elapsed = (System.nanoTime() - start) / 1_000_000;
+                String first = "first run " + values.getProperty("elapsed-ms", "?") + " ms";
+                if (status == EngineResult.Status.FAILED)
+                    return new EngineResult(engine.id(), engine.version(), status, exit, files, elapsed, "Reused from the engine cache ("
+                        + first + "; the engine exited with code " + exit + "); see engine.log", EngineResult.DiagnosticCode.ENGINE_EXIT_NONZERO);
+                return new EngineResult(engine.id(), engine.version(), EngineResult.Status.OUTPUT_PRODUCED, 0, files, elapsed,
+                    "Reused from the engine cache (" + first + "); correctness not verified");
             } catch (IOException | RuntimeException unusable) {
                 // A cache is an optimization: a corrupt or unreadable entry must never fail the job.
                 deleteTree(entry);
@@ -52,13 +68,16 @@ final class EngineCache {
             }
         }
         var result = new ProcessRunner().run(engine, normalized, engineOutput, timeout);
-        if (result.status() == EngineResult.Status.OUTPUT_PRODUCED && result.exitCode() == 0 && !Files.exists(entry)) {
+        if (cacheable(result) && Files.isDirectory(engineOutput.resolve("sources"), LinkOption.NOFOLLOW_LINKS) && !Files.exists(entry)) {
             Path temporary = Files.createTempDirectory(root, "tmp-");
             try {
                 copySources(engineOutput.resolve("sources"), Files.createDirectory(temporary.resolve("sources")));
+                Path log = engineOutput.resolve("engine.log");
+                if (Files.isRegularFile(log, LinkOption.NOFOLLOW_LINKS)) Files.copy(log, temporary.resolve("engine.log"));
                 var values = new Properties();
                 values.setProperty("engine", engine.id()); values.setProperty("version", engine.version());
                 values.setProperty("elapsed-ms", Long.toString(result.elapsedMillis()));
+                values.setProperty("status", result.status().name()); values.setProperty("exit-code", Integer.toString(result.exitCode()));
                 try (var out = Files.newOutputStream(temporary.resolve("result.properties"))) { values.store(out, "Engine cache entry"); }
                 Files.move(temporary, entry, StandardCopyOption.ATOMIC_MOVE);
             } catch (IOException | RuntimeException race) {
@@ -66,6 +85,16 @@ final class EngineCache {
             }
         }
         return result;
+    }
+
+    /**
+     * A run the cache keeps: sources written with exit code 0, or an exit code the engine itself returned (Phase 2DX).
+     * A timeout, a budget refusal, a cancellation or a worker that could not start depends on the machine or the moment.
+     */
+    static boolean cacheable(EngineResult result) {
+        return result.status() == EngineResult.Status.OUTPUT_PRODUCED && result.exitCode() == 0
+            || result.status() == EngineResult.Status.FAILED && result.exitCode() != 0
+                && result.diagnosticCode() == EngineResult.DiagnosticCode.ENGINE_EXIT_NONZERO;
     }
 
     /** SHA-256 over the input's bytes, the JVM version and the worker command with its input and output paths replaced. */

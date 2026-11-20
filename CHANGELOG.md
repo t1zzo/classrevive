@@ -41,6 +41,7 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 
 ### Engines and selection
 
+- The engine cache (`--engine-cache`) also keeps runs the engine itself ended with a nonzero exit code, with the sources they wrote and their `engine.log`: JADX exits 1 on most real jars and Procyon on some, and those runs repeated in every variant of every benchmark. A reused failure keeps its status (`FAILED`), exit code and log. Timeouts, output-budget refusals, cancellations and workers that could not start still run again.
 - Inferred stand-ins for missing libraries never give a type a supertype that reaches one of its own member types. Converted Android code could lead there (`Drawable` placed below `AdaptiveIconDrawable`, which implements `Drawable.Callback`), and javac's "cyclic inheritance" then stopped every file naming the type, so the per-file round trip of a large APK compiled nothing.
 - Hybrid selection no longer keeps a replacement that fixes its own file but breaks the files that use it (a decompiler declaring a `throws` clause the bytecode does not, so every caller fails): when both mixes parse, the errors that grew in other files are charged to the replacements whose class they name (by simple name in the same package, by qualified name from another), and a replacement whose charge outweighs what it fixed is reverted. javac now reports up to 100,000 errors per compilation instead of 1,000, so per-file counts on large inputs are no longer cut short; the compiler log still prints the first 1,000.
 
