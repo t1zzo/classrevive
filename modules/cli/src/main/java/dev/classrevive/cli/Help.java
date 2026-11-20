@@ -31,6 +31,8 @@ final class Help {
               -o, --output <folder>       New result folder (one input), or the folder that receives one result folder per
                                           input (several inputs or a folder). Default: <name>-classrevive in the current folder.
               -e, --engines <list>        cfr,vineflower,procyon,jadx or all. Default: cfr,vineflower.
+                                          Optional: jd-core, with CLASSREVIVE_JDCORE_JAR naming your JD-Core jar (GPL-3.0,
+                                          never bundled); its result is kept only when it is no worse (docs/jd-core.md).
               -t, --timeout-seconds <n>   Limit per worker or compile attempt, 1..3600. Default: 120.
               -cp, --classpath <jars>     Library JARs used only to verify the result (separator: %s), at most 16.
               --stubs true|false          Infer stand-ins for missing libraries (reported as such). Default: true.
@@ -75,7 +77,7 @@ final class Help {
             Counts obfuscation techniques and suggests the obfuscator (never proof), and lists bootstrap sites, reflection,
             class-loading and crypto references as clues. Default output: <name>-diagnosis in the current folder.
             %s"""));
-        COMMANDS.put("engines", new Entry("tools", "List the bundled decompiler engines and their pinned versions", """
+        COMMANDS.put("engines", new Entry("tools", "List the bundled decompiler engines, their pinned versions and the optional JD-Core", """
             Usage: classrevive engines"""));
         COMMANDS.put("transform", new Entry("tools", "Opt-in static simplification passes (constant folding, string decoding)", """
             Usage: classrevive transform <input> -o <new-folder> [--passes <list>] [--max-changes <1..10000>] [-t <seconds>]

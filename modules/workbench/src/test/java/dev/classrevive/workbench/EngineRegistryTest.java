@@ -15,9 +15,15 @@ class EngineRegistryTest {
 
     @Test void rejectsUnknownAndDuplicateEnginesWithTheCliMessages() {
         assertEquals("Duplicate engine: cfr", assertThrows(IllegalArgumentException.class, () -> EngineRegistry.parse("cfr,cfr")).getMessage());
-        assertEquals("Unknown engine: fernflower. Use cfr,vineflower,procyon,jadx or all.",
+        assertEquals("Unknown engine: fernflower. Use cfr,vineflower,procyon,jadx or all (jd-core when CLASSREVIVE_JDCORE_JAR is set).",
             assertThrows(IllegalArgumentException.class, () -> EngineRegistry.parse("fernflower")).getMessage());
         assertThrows(IllegalArgumentException.class, () -> EngineRegistry.parse(""));
+    }
+
+    @Test void jdCoreIsRefusedWithAClearMessageWhenItsJarIsNotSet() {
+        assertEquals("jd-core is optional and not installed: set CLASSREVIVE_JDCORE_JAR to your JD-Core jar (GPL-3.0, never bundled)",
+            assertThrows(IllegalArgumentException.class, () -> EngineRegistry.parse("cfr,jd-core", Map.of())).getMessage());
+        assertEquals(List.of("cfr", "vineflower", "procyon", "jadx"), EngineRegistry.parse("all", Map.of()).stream().map(e -> e.id()).toList());
     }
 
     @Test void requestsKeepTheCliLimits() {
@@ -30,7 +36,7 @@ class EngineRegistryTest {
         assertEquals("Timeout must be 1..3600 seconds", assertThrows(IllegalArgumentException.class,
             () -> new DecompileRequest(in, out, EngineRegistry.all(), Duration.ofMillis(999), List.of(), null, true)).getMessage());
         assertThrows(IllegalArgumentException.class, () -> new DecompileRequest(in, out, EngineRegistry.all(), Duration.ofSeconds(3601), List.of(), null, true));
-        assertEquals("Select one to four engines", assertThrows(IllegalArgumentException.class,
+        assertEquals("Select one to five engines", assertThrows(IllegalArgumentException.class,
             () -> new DecompileRequest(in, out, List.of(), Duration.ofSeconds(1), List.of(), null, true)).getMessage());
         var seventeen = Collections.nCopies(17, Path.of("lib.jar"));
         assertEquals("At most 16 dependency JARs", assertThrows(IllegalArgumentException.class,

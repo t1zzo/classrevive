@@ -8,4 +8,6 @@ dependencies {
     implementation(project(":engine-vineflower"))
     implementation(project(":engine-procyon"))
     implementation(project(":engine-jadx"))
+    // Phase 2DO: the optional JD-Core adapter (our code only; the GPL-3.0 jar is the user's own).
+    implementation(project(":engine-jdcore"))
 }

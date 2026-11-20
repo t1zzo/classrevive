@@ -7,9 +7,18 @@ import java.util.*;
 public final class EngineCommand {
     private EngineCommand() {}
     public static List<String> javaWorker(Class<?> adapter, String worker, List<String> resources, String... arguments) {
+        return javaWorker(adapter, worker, resources, List.of(), arguments);
+    }
+
+    /**
+     * Phase 2DO: like {@link #javaWorker(Class, String, List, String...)}, with {@code external} jars the user supplied (an
+     * optional engine that is never bundled) appended to the worker's class path.
+     */
+    public static List<String> javaWorker(Class<?> adapter, String worker, List<String> resources, List<Path> external, String... arguments) {
         try {
             var paths = new LinkedHashSet<String>();
             paths.add(Path.of(adapter.getProtectionDomain().getCodeSource().getLocation().toURI()).toString());
+            for (Path jar : external) paths.add(jar.toAbsolutePath().normalize().toString());
             for (String resource : resources) {
                 var location = adapter.getClassLoader().getResource(resource);
                 if (location == null || !(location.openConnection() instanceof JarURLConnection connection))

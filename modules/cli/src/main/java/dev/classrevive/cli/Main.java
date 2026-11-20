@@ -49,6 +49,7 @@ public final class Main {
         if (java.util.Set.of("lab", "lab-minimize", "lab-promote", "lab-check").contains(args[0])) return LabCommand.run(args, out, err);
         if (args.length == 1 && args[0].equals("engines")) {
             for (var engine : EngineRegistry.all()) out.printf("%s %s%n", engine.id(), engine.version());
+            out.println(EngineRegistry.optionalStatus(System.getenv()));
             return 0;
         }
         if (args.length != 2 || !args[0].equals("inspect")) {

@@ -116,11 +116,30 @@ public final class DecompilationJob {
         }
         var candidates = candidateSources(results, output);
         listener.stage(JobListener.Stage.SELECTION);
-        var selection = new SourceSelector(sourceRepair).select(candidates, output.resolve("selection"), originals, timeout, dependencies,
-            output.resolve("classes.jar"), enginePreference(output.resolve("classes.jar")));
-        // Phase 2DF: a candidate that compiled with stubs on the class path compiled against guesses, not the real libraries.
-        // It stays complete (same status and exit code) but is marked, and the bytecode fallback is kept below.
-        selection = selection.withStubBacked(stubResult != null && !stubResult.isEmpty());
+        boolean stubBacked = stubResult != null && !stubResult.isEmpty();
+        // Phase 2DP: an engine that must never make the result worse (JD-Core) is weighed by running the selection and the
+        // per-file round trip with and without its sources; the run with it is kept only when it is at least as good on
+        // every measure and better on one. The other run stays in guard/ as evidence.
+        var guarded = engines.stream().filter(DecompilerEngine::neverWorse).map(DecompilerEngine::id).filter(candidates::containsKey).toList();
+        Measured measured;
+        String guardText = "";
+        if (!guarded.isEmpty() && candidates.size() > guarded.size()) {
+            Path guard = Files.createDirectory(output.resolve(NeverWorse.DIRECTORY));
+            var without = new TreeMap<>(candidates); guarded.forEach(without::remove);
+            var base = measure(without, guard.resolve(NeverWorse.WITHOUT), originals, timeout, dependencies, sourceRepair, stubBacked, output, false);
+            var full = measure(candidates, guard.resolve(NeverWorse.WITH), originals, timeout, dependencies, sourceRepair, stubBacked, output, true);
+            var decision = NeverWorse.decide(guarded, NeverWorse.score(full.selection(), full.perFile()), NeverWorse.score(base.selection(), base.perFile()));
+            Path kept = guard.resolve(decision.keptWith() ? NeverWorse.WITH : NeverWorse.WITHOUT);
+            Files.move(kept.resolve("selection"), output.resolve("selection"));
+            if (Files.isDirectory(kept.resolve("per-file"), LinkOption.NOFOLLOW_LINKS)) Files.move(kept.resolve("per-file"), output.resolve("per-file"));
+            measured = decision.keptWith() ? full : base;
+            guardText = decision.text();
+            Files.writeString(guard.resolve(NeverWorse.FILE), guardText, StandardCharsets.UTF_8);
+            Path selectionText = output.resolve("selection").resolve("selection.txt");
+            if (Files.isRegularFile(selectionText, LinkOption.NOFOLLOW_LINKS))
+                Files.writeString(selectionText, "\n" + guardText, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+        } else measured = measure(candidates, output, originals, timeout, dependencies, sourceRepair, stubBacked, output, true);
+        var selection = measured.selection();
         var caseRenames = caseRenames(output);
         var memberRenames = memberRenames(output);
         var keptMembers = keptMembers(output);
@@ -135,14 +154,7 @@ public final class DecompilationJob {
             Files.writeString(selectionReport, "\n" + memberRenameSummary(portableMembers, keptMembers), StandardOpenOption.APPEND);
         if (inferredNames != null && Files.isRegularFile(selectionReport, LinkOption.NOFOLLOW_LINKS))
             Files.writeString(selectionReport, "\n" + InferredNames.text(inferredNames), StandardOpenOption.APPEND);
-        // Phase 2BP: a candidate that does not compile as a whole is still measured file by file against the originals.
-        dev.classrevive.verification.PartialRoundTrip.Result perFile = null;
-        Path selected = output.resolve("selection").resolve("sources");
-        if (selection.verification().status() != dev.classrevive.verification.VerificationResult.Status.COMPILED && Files.isDirectory(selected)) {
-            listener.stage(JobListener.Stage.PER_FILE);
-            perFile = new dev.classrevive.verification.PartialRoundTrip().measure(selected, output.resolve("per-file"), originals, timeout,
-                dependencies, output.resolve("classes.jar"));
-        }
+        var perFile = measured.perFile();
         EngineResult fallback = null;
         if (!selection.verification().complete() || selection.stubBacked()) {
             listener.stage(JobListener.Stage.FALLBACK);
@@ -178,7 +190,7 @@ public final class DecompilationJob {
                 + " inferred stub class(es) for missing libraries, not the real ones (stubs/stubs.txt). The bytecode fallback is kept;"
                 + " pass the real JARs with --classpath for a faithful check." : "")
             + "\nBehavior not verified. See selection/selection.txt and selection/checks/*/engine.log.\n"
-            + (fallback == null ? "" : "Bytecode fallback: " + fallback.status() + "\n"), StandardOpenOption.APPEND);
+            + (fallback == null ? "" : "Bytecode fallback: " + fallback.status() + "\n") + guardText, StandardOpenOption.APPEND);
         var job = new VerifiedJob(results, selection, fallback, perFile, caseRenames, memberRenames, deobfuscation, stubResult);
         Path snapshot = Files.exists(output.resolve("input.jar")) ? output.resolve("input.jar") : output.resolve("input.class");
         var originalInventory = new InventoryReader().inspect(snapshot, Limits.defaults());
@@ -211,6 +223,33 @@ public final class DecompilationJob {
             + " resources, " + project.libraries() + " libraries, release " + project.release() + ")\n", StandardOpenOption.APPEND);
         return job;
     }
+    /** Phase 2DP: one selection and, when it did not compile as a whole, its per-file round trip (Phase 2BP). */
+    private record Measured(SelectionResult selection, dev.classrevive.verification.PartialRoundTrip.Result perFile) {}
+
+    /**
+     * Selects among {@code candidates} into {@code root}/selection and measures the result file by file into
+     * {@code root}/per-file when it does not compile. {@code last}: whether this is the job's last selection, the one
+     * that reports the per-file stage to the listener.
+     */
+    private Measured measure(Map<String,Path> candidates, Path root, List<ClassInfo> originals, Duration timeout, List<Path> dependencies,
+                             boolean sourceRepair, boolean stubBacked, Path output, boolean last) throws IOException {
+        Files.createDirectories(root);
+        Path classes = output.resolve("classes.jar");
+        var selection = new SourceSelector(sourceRepair).select(candidates, root.resolve("selection"), originals, timeout, dependencies,
+            classes, enginePreference(classes));
+        // Phase 2DF: a candidate that compiled with stubs on the class path compiled against guesses, not the real libraries.
+        // It stays complete (same status and exit code) but is marked, and the bytecode fallback is kept.
+        selection = selection.withStubBacked(stubBacked);
+        // Phase 2BP: a candidate that does not compile as a whole is still measured file by file against the originals.
+        dev.classrevive.verification.PartialRoundTrip.Result perFile = null;
+        Path selected = root.resolve("selection").resolve("sources");
+        if (selection.verification().status() != dev.classrevive.verification.VerificationResult.Status.COMPILED && Files.isDirectory(selected)) {
+            if (last) listener.stage(JobListener.Stage.PER_FILE);
+            perFile = new dev.classrevive.verification.PartialRoundTrip().measure(selected, root.resolve("per-file"), originals, timeout,
+                dependencies, classes);
+        }
+        return new Measured(selection, perFile);
+    }
     /** Phase 2CY: the targetSdkVersion the decoded manifest recorded in input-origin/identification.json, or null. */
     private static Integer targetSdk(Path output) {
         try {
@@ -230,7 +269,8 @@ public final class DecompilationJob {
     private List<EngineResult> run(Path input, Path output, List<DecompilerEngine> engines, Duration timeout, List<Path> dependencies)
             throws IOException, InterruptedException {
         engines = List.copyOf(engines);
-        if (engines.isEmpty() || engines.size() > 4) throw new IllegalArgumentException("Select one to four engines");
+        // Phase 2DO: five with the optional JD-Core; worker concurrency stays capped (WorkerConcurrency), so memory does not grow.
+        if (engines.isEmpty() || engines.size() > 5) throw new IllegalArgumentException("Select one to five engines");
         if (timeout.isNegative() || timeout.isZero() || timeout.compareTo(Duration.ofHours(1)) > 0)
             throw new IllegalArgumentException("Timeout must be between 1 nanosecond and 1 hour");
         var ids = new HashSet<String>();
