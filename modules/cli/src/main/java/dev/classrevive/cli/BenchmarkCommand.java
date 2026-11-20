@@ -8,8 +8,9 @@ final class BenchmarkCommand {
     static int run(String[] args, PrintStream out, PrintStream err) {
         try {
             var options = JobOptions.parse(args, "all");
-            out.println("Benchmarking selected engines and combined selection; target behavior is not executed.");
-            var result = new BenchmarkRunner().withEngineCache(options.engineCache()).withStubs(options.stubs())
+            out.println((options.combinedOnly() ? "Benchmarking the combined selection only (no single-engine rows)"
+                : "Benchmarking selected engines and combined selection") + "; target behavior is not executed.");
+            var result = new BenchmarkRunner().withEngineCache(options.engineCache()).withStubs(options.stubs()).withCombinedOnly(options.combinedOnly())
                 .run(options.input(), options.output(), options.engines(), options.timeout(), options.resume());
             out.printf("Structurally complete: %d/%d attempts. Behavior not verified.%n", result.complete(), result.attempted());
             out.println("Report: " + Main.safe(options.output().toAbsolutePath().normalize().resolve("benchmark.json").toString()));

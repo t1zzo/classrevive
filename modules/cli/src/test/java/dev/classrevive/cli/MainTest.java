@@ -115,6 +115,15 @@ class MainTest {
         assertEquals(2,run("benchmark","corpus","--output","out","--classpath","a.jar"));
         assertThrows(IllegalArgumentException.class,()->JobOptions.parse(new String[]{"decompile","input.jar","--output","out","--classpath",""},"cfr"));
     }
+    @Test void parsesTheBenchmarkVariantsOnlyForBenchmark() {
+        // Phase 2DT: --variants combined skips the single-engine rows; all is the default.
+        assertTrue(JobOptions.parse(new String[]{"benchmark","corpus","--output","out","--variants","combined"},"all").combinedOnly());
+        assertFalse(JobOptions.parse(new String[]{"benchmark","corpus","--output","out"},"all").combinedOnly());
+        assertFalse(JobOptions.parse(new String[]{"benchmark","corpus","--output","out","--variants","all"},"all").combinedOnly());
+        assertThrows(IllegalArgumentException.class,()->JobOptions.parse(new String[]{"benchmark","corpus","--output","out","--variants","cfr"},"all"));
+        assertThrows(IllegalArgumentException.class,()->JobOptions.parse(new String[]{"decompile","input.jar","--output","out","--variants","combined"},"cfr"));
+        assertEquals(2,run("benchmark","corpus","--output","out","--variants","some"));
+    }
     @Test void decompilesAndVerifiesWithExplicitDependency() throws Exception {
         Path library=directory.resolve("Library.java"), source=directory.resolve("Target.java");
         Files.writeString(library,"public class Library { public static int value(){return 42;} }");

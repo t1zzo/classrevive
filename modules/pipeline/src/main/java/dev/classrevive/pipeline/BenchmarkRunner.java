@@ -19,6 +19,12 @@ public final class BenchmarkRunner {
     /** Phase 2CT: inferred stubs for types no sample or dependency supplies; on unless turned off. */
     private boolean stubs = true;
     public BenchmarkRunner withStubs(boolean enabled) { this.stubs = enabled; return this; }
+    /**
+     * Phase 2DT: only the combined variant, without the single-engine rows. A change to the selection leaves the
+     * single-engine rows as they were, and they took most of a run's time; this measures what the change can move.
+     */
+    private boolean combinedOnly;
+    public BenchmarkRunner withCombinedOnly(boolean enabled) { this.combinedOnly = enabled; return this; }
     public Result run(Path corpus, Path output, List<DecompilerEngine> engines, Duration timeout) throws IOException, InterruptedException {
         return run(corpus, output, engines, timeout, false);
     }
@@ -37,6 +43,7 @@ public final class BenchmarkRunner {
             throw new IllegalArgumentException("Invalid or duplicate benchmark engine id");
         if (timeout.isZero() || timeout.isNegative() || timeout.compareTo(Duration.ofHours(1)) > 0)
             throw new IllegalArgumentException("Invalid timeout");
+        if (combinedOnly && engines.size() < 2) throw new IllegalArgumentException("--variants combined needs at least two engines");
         if (!Files.isDirectory(corpus, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Corpus must be a regular directory");
         if (output.startsWith(corpus)) throw new IOException("Benchmark output must be outside the corpus");
         List<Path> inputs, sidecars;
@@ -71,7 +78,8 @@ public final class BenchmarkRunner {
             if (total > 512L * 1024 * 1024) throw new IOException("Corpus exceeds 512 MiB");
         }
         // Stubs change what compiles, so a run with them never resumes one without them (Phase 2CT).
-        String fingerprint = RunFingerprint.of(inputs, dependencies, engines, timeout) + (stubs ? "" : "-nostubs");
+        // A combined-only run never resumes a full one, nor the other way round (Phase 2DT).
+        String fingerprint = RunFingerprint.of(inputs, dependencies, engines, timeout) + (stubs ? "" : "-nostubs") + (combinedOnly ? "-combined" : "");
         var done = new HashMap<String,Map<String,Object>>();
         Path snapshots = output.resolve("corpus");
         FailureCollector failures;
@@ -109,7 +117,7 @@ public final class BenchmarkRunner {
             Files.deleteIfExists(progress);
         }
         var variants = new LinkedHashMap<String,List<DecompilerEngine>>();
-        for (var engine : engines) variants.put(engine.id(), List.of(engine));
+        if (!combinedOnly) for (var engine : engines) variants.put(engine.id(), List.of(engine));
         if (engines.size() > 1) variants.put("combined", engines);
         var rows = new ArrayList<Map<String,Object>>();
         var caseBodies = new HashMap<String,Integer>();
@@ -217,11 +225,13 @@ public final class BenchmarkRunner {
         report.put("attempted", rows.size()); report.put("structurally_complete", complete);
         report.put("resumed_rows", resumed); report.put("run_fingerprint", fingerprint);
         report.put("engine_cache", engineCache == null ? "off" : "on");
+        report.put("variants_run", combinedOnly ? "combined" : "all");
         report.put("variants", summaries); report.put("rows", rows);
         report.put("failures", Map.of("cases", lab.get("cases"), "signatures", lab.get("signatures"), "categories", lab.get("categories"),
             "summary", "failures/failures.json"));
         var unmeasured = new ArrayList<String>();
         for (String name : List.of("cfr", "vineflower", "procyon", "jadx")) if (!ids.contains(name)) unmeasured.add(name);
+        if (combinedOnly) unmeasured.add("single_engine_variants");
         unmeasured.addAll(List.of("behavioral_equivalence", "deobfuscation", "textual_similarity", "human_readability"));
         report.put("not_measured", unmeasured);
         Files.writeString(output.resolve("benchmark.md"), markdown, StandardOpenOption.CREATE_NEW);

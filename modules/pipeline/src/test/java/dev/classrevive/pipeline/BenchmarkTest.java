@@ -69,6 +69,40 @@ class BenchmarkTest {
         assertFalse(lab.contains("Sample") || lab.contains("twice"), "the summary names no target member: " + lab);
         assertTrue(markdown.matches("(?s).*\\| combined \\| 1/1 \\| \\d+ \\| \\d+ \\| \\d+ \\| \\d/3 .*"), markdown);
     }
+    @Test void runsOnlyTheCombinedVariantWhenAskedAndNeverResumesTheOtherMode() throws Exception {
+        // Phase 2DT: no single-engine rows; the run says so, and its fingerprint keeps it apart from a full run.
+        var corpus = Files.createDirectory(directory.resolve("corpus"));
+        var source = directory.resolve("Sample.java");
+        Files.writeString(source, "public class Sample { static { if (System.nanoTime() != 0) throw new Error(); } public int twice(int x) { return x * 2; } }");
+        assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null,null,null,"--release","8","-proc:none","-d",corpus.toString(),source.toString()));
+        var engines = List.<dev.classrevive.engine.DecompilerEngine>of(new CfrEngine(), new VineflowerEngine());
+        assertThrows(IllegalArgumentException.class, () -> new BenchmarkRunner().withCombinedOnly(true)
+            .run(corpus, directory.resolve("single"), List.of(new CfrEngine()), Duration.ofSeconds(30)));
+        assertFalse(Files.exists(directory.resolve("single")), "refused before any output");
+        var output = directory.resolve("results");
+        var result = new BenchmarkRunner().withCombinedOnly(true).run(corpus, output, engines, Duration.ofSeconds(30));
+        assertEquals(1, result.attempted()); assertEquals(1, result.complete());
+        String json = Files.readString(output.resolve("benchmark.json"));
+        assertTrue(json.contains("\"variants_run\":\"combined\""), json);
+        assertTrue(json.contains("\"single_engine_variants\""), json);
+        assertTrue(json.contains("\"variant\":\"combined\""), json);
+        assertFalse(json.contains("\"variant\":\"cfr\"") || json.contains("\"variant\":\"vineflower\""), json);
+        assertTrue(Files.isDirectory(output.resolve("case-001-combined")));
+        assertFalse(Files.exists(output.resolve("case-001-cfr")) || Files.exists(output.resolve("case-001-vineflower")));
+        String markdown = Files.readString(output.resolve("benchmark.md"));
+        assertTrue(markdown.contains("| combined | 1 | 1 | 1 |"), markdown);
+        assertFalse(markdown.contains("| cfr |"), markdown);
+        // As if interrupted before the aggregate: a full run must not resume it, a combined-only run does.
+        Files.delete(output.resolve("benchmark.json")); Files.delete(output.resolve("benchmark.md"));
+        var refused = assertThrows(java.io.IOException.class, () -> new BenchmarkRunner().run(corpus, output, engines, Duration.ofSeconds(30), true));
+        assertTrue(refused.getMessage().startsWith("Cannot resume"), refused.getMessage());
+        new BenchmarkRunner().withCombinedOnly(true).run(corpus, output, engines, Duration.ofSeconds(30), true);
+        assertTrue(Files.readString(output.resolve("benchmark.json")).contains("\"resumed_rows\":1"));
+        // The default stays every variant.
+        new BenchmarkRunner().run(corpus, directory.resolve("full"), engines, Duration.ofSeconds(30));
+        String full = Files.readString(directory.resolve("full/benchmark.json"));
+        assertTrue(full.contains("\"variants_run\":\"all\"") && full.contains("\"variant\":\"cfr\""), full);
+    }
     @Test void compilesEachSampleAgainstItsOwnDependencyFolder() throws Exception {
         // Phase 2BK: Sample.class needs Dep at compile time; only its sidecar folder provides it.
         var classes = Files.createDirectory(directory.resolve("classes"));
