@@ -97,9 +97,12 @@ final class Help {
             %s"""));
         COMMANDS.put("benchmark", new Entry("tools", "Measure each engine and the combined selection on a corpus", """
             Usage: classrevive benchmark <corpus-folder> -o <new-folder> [-e <list>] [-t <seconds>] [--engine-cache <folder>] [--resume true]
+                                         [--variants all|combined]
 
             Each .jar/.class sample compiles against the jars in a sibling <sample>.deps/ folder. Writes benchmark.json,
             benchmark.md and the failure lab cases. Default engines: all.
+            --variants combined runs only the combined selection, without one row per engine (at least two engines);
+            a run in one mode never resumes the other. Default: all.
             %s"""));
         COMMANDS.put("compare-reference", new Entry("tools", "Score a decompile against a reference jar (answer key)", """
             Usage: classrevive compare-reference <reference.jar> <decompile-output> -o <new-folder> [-cp <jars>]"""));

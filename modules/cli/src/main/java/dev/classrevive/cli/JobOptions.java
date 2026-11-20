@@ -10,13 +10,15 @@ import java.util.*;
 /** Phase 2DB: {@code entry}: the nested jar to take from a bundle of jars (decompile only), or null. */
 /** Phase 2DD: {@code deobfuscate}: automatic reversal ({@code --deobfuscate auto|off}, decompile only). */
 /** Phase 2DK: {@code inferNames}: guessed names ({@code --infer-names off|high|medium|low|true|false}, decompile only), null when off. */
+/** Phase 2DT: {@code combinedOnly}: {@code --variants combined}, the benchmark's combined variant without single-engine rows. */
 record JobOptions(Path input, Path output, Duration timeout, List<DecompilerEngine> engines, List<Path> dependencies, Path engineCache, boolean resume,
-                  boolean stubs, String entry, boolean deobfuscate, String inferNames) {
+                  boolean stubs, String entry, boolean deobfuscate, String inferNames, boolean combinedOnly) {
     static JobOptions parse(String[] args, String defaultEngines) {
         if (args.length < 4 || args.length % 2 != 0) throw new IllegalArgumentException("Expected input and option/value pairs");
         var options = new HashMap<String,String>();
         for (int i = 2; i < args.length; i += 2) {
-            if (!Set.of("--output", "--timeout-seconds", "--engines", "--classpath", "--engine-cache", "--resume", "--stubs", "--entry", "--deobfuscate", "--infer-names").contains(args[i]))
+            if (!Set.of("--output", "--timeout-seconds", "--engines", "--classpath", "--engine-cache", "--resume", "--stubs", "--entry", "--deobfuscate", "--infer-names",
+                    "--variants").contains(args[i]))
                 throw new IllegalArgumentException("Unknown option: " + args[i]);
             if (options.putIfAbsent(args[i], args[i+1]) != null) throw new IllegalArgumentException("Repeated option: " + args[i]);
         }
@@ -48,12 +50,16 @@ record JobOptions(Path input, Path output, Duration timeout, List<DecompilerEngi
         String infer = options.getOrDefault("--infer-names", "off");
         if (!Set.of("off", "false", "true", "high", "medium", "low").contains(infer)) throw new IllegalArgumentException("--infer-names takes off, high, medium or low");
         if (options.containsKey("--infer-names") && !args[0].equals("decompile")) throw new IllegalArgumentException("--infer-names is supported only by decompile");
+        // Phase 2DT: the benchmark's combined variant only, for changes to the selection.
+        String variants = options.getOrDefault("--variants", "all");
+        if (!variants.equals("all") && !variants.equals("combined")) throw new IllegalArgumentException("--variants takes all or combined");
+        if (options.containsKey("--variants") && !args[0].equals("benchmark")) throw new IllegalArgumentException("--variants is supported only by benchmark");
         String cache = options.get("--engine-cache");
         if (cache != null && cache.isBlank()) throw new IllegalArgumentException("Empty --engine-cache directory");
         return new JobOptions(Path.of(args[1]), Path.of(options.get("--output")), timeout,
             EngineRegistry.parse(options.getOrDefault("--engines", defaultEngines)),List.copyOf(dependencies), cache == null ? null : Path.of(cache),
             resume.equals("true"), stubs.equals("true"), entry, deobfuscate.equals("auto"),
-            infer.equals("off") || infer.equals("false") ? null : infer.equals("true") ? "low" : infer);
+            infer.equals("off") || infer.equals("false") ? null : infer.equals("true") ? "low" : infer, variants.equals("combined"));
     }
 
     /** Phase G1: the same job as a front-end-neutral request. */
