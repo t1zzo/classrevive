@@ -188,12 +188,15 @@ public final class DecompilationJob {
         var libraries = EmbeddedLibraries.detect(snapshot, normalizedClasses.keySet());
         // Phase 2CJ: which compiler (and language) produced the classes, from bytecode traces.
         var compiler = dev.classrevive.bytecode.CompilerFingerprint.analyze(normalizedClasses.values());
+        // Phase 2DW: every compile stage is done, so the dependency jar copies go; dependencies.txt stays as the evidence.
+        var removed = DependencyCopies.remove(output);
+        Files.writeString(output.resolve("report.txt"), DependencyCopies.text(removed), StandardOpenOption.APPEND);
         EvidenceReport.job(output, originalInventory.sha256(), job, snapshot.getFileName().toString().endsWith(".jar")
             ? EvidenceReport.multiRelease(MultiRelease.variants(originalInventory), multiReleaseDeclared(snapshot)) : null,
             EvidenceReport.portableNames(caseRenames, memberRenames, keptMembers, originalInventory.notices()), originalInventory.notices(),
             obfuscation == null ? null : ObfuscationSummary.json(obfuscation.profile(), obfuscation.result()), EmbeddedLibraries.json(libraries),
             dev.classrevive.bytecode.CompilerFingerprint.json(compiler), stubJson(stubResult),
-            deobfuscation == null ? null : AutoDeobfuscation.json(deobfuscation), InferredNames.json(inferredNames));
+            deobfuscation == null ? null : AutoDeobfuscation.json(deobfuscation), InferredNames.json(inferredNames), DependencyCopies.json(removed));
         String libraryText = dev.classrevive.bytecode.CompilerFingerprint.text(compiler) + EmbeddedLibraries.text(libraries) + stubText(stubResult)
             + InferredNames.text(inferredNames);
         if (!libraryText.isEmpty()) Files.writeString(output.resolve("report.txt"), libraryText, StandardOpenOption.APPEND);

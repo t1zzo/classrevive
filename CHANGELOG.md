@@ -7,6 +7,7 @@ All notable changes to ClassRevive are listed here. The format follows [Keep a C
 ### Reports
 
 - `report.html` uses the desktop application's level colors (*close* was green and *per-file* blue there; now blue and yellow, as in the desktop), its black and orange look in both light and dark color schemes, and opens with one sentence saying what the result means. Statuses and the selected candidate read as words ("Compiles", "Methods combined"), the legend gives each level's share, and buttons under it show only one level or the classes that need attention. The page still runs no script and loads nothing from the network: the filter is plain CSS.
+- The dependency jar copies that every compile stage makes in its `*-dependencies/` folder are removed once the job is done. Each stage reads them only while it compiles, and on a large obfuscated jar with a dozen dependencies they were about four fifths of the output (1706 MB down to 346 MB, identical results). `dependencies.txt`, with every jar's SHA-256 and class count, stays in each folder; `report.txt` and `report.json` (`dependency_copies_removed`) record what was removed. A job that fails before its reports keeps its copies.
 
 ### Desktop
 
