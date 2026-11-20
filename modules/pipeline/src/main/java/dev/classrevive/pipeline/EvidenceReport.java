@@ -194,6 +194,14 @@ public final class EvidenceReport {
                            Map<String,Object> portableNames, List<dev.classrevive.model.Diagnostic> notices,
                            Map<String,Object> obfuscation, Map<String,Object> embeddedLibraries, Map<String,Object> compiler,
                            Map<String,Object> stubs, Map<String,Object> deobfuscation, Map<String,Object> inferredNames) throws IOException {
+        job(output, inputHash, job, multiRelease, portableNames, notices, obfuscation, embeddedLibraries, compiler, stubs, deobfuscation, inferredNames, null);
+    }
+    /** {@code dependencyCopies}: Phase 2DW's removal of the dependency jar copies, or null when none was removed. */
+    public static void job(Path output, String inputHash, DecompilationJob.VerifiedJob job, Map<String,Object> multiRelease,
+                           Map<String,Object> portableNames, List<dev.classrevive.model.Diagnostic> notices,
+                           Map<String,Object> obfuscation, Map<String,Object> embeddedLibraries, Map<String,Object> compiler,
+                           Map<String,Object> stubs, Map<String,Object> deobfuscation, Map<String,Object> inferredNames,
+                           Map<String,Object> dependencyCopies) throws IOException {
         var data = new TreeMap<String,Object>();
         data.put("schema_version", 1); data.put("kind", "decompilation"); data.put("tool_version", "0.3.0");
         data.put("input_sha256", inputHash); data.put("environment", environment());
@@ -224,6 +232,7 @@ public final class EvidenceReport {
         if (stubs != null) data.put("missing_type_stubs", stubs);
         if (deobfuscation != null) data.put("deobfuscation", deobfuscation);
         if (inferredNames != null) data.put("inferred_names", inferredNames);
+        if (dependencyCopies != null) data.put("dependency_copies_removed", dependencyCopies);
         write(output.resolve("report.json"), data);
     }
 }
