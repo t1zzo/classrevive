@@ -153,7 +153,7 @@ tasks.register("verifyNameFixtures") {
 // as a build tool) turns demo/notes into classes.dex and demo/util into classes2.dex, and both are packed with a placeholder
 // binary manifest into notes.apk. The committed notes.apk and notes.dex are the fixtures; these tasks regenerate them.
 val dexTool: Configuration by configurations.creating { isCanBeConsumed = false }
-dependencies { dexTool("de.femtopedia.dex2jar:dex-translator:2.4.38") }
+dependencies { dexTool("de.femtopedia.dex2jar:dex-translator:2.4.39") }
 val androidDir = layout.projectDirectory.dir("benchmarks/android")
 val compileAndroidStubs = tasks.register<JavaCompile>("compileAndroidFixtureStubs") {
     source(fileTree(androidDir.dir("stubs")) { include("**/*.java") })
